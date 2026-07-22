@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ente_accounts/services/user_service.dart';
 import 'package:ente_auth/core/configuration.dart';
 import 'package:ente_auth/l10n/l10n.dart';
 import 'package:ente_auth/onboarding/view/onboarding_page.dart';
+import 'package:ente_auth/services/profile_service.dart';
 import 'package:ente_auth/store/code_store.dart';
 import 'package:ente_auth/ui/components/buttons/button_widget.dart';
 import 'package:ente_auth/ui/settings/about_settings_page.dart';
@@ -226,6 +228,10 @@ class SettingsPage extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) {
     final l10n = context.l10n;
+    // Captured up front: by the time the logout completes this page has been
+    // torn down along with the drawer that hosted it.
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final hasOtherProfiles = ProfileService.instance.hasMultipleProfiles;
     return showChoiceActionSheet(
       context,
       title: l10n.logout,
@@ -233,7 +239,15 @@ class SettingsPage extends StatelessWidget {
       firstButtonLabel: l10n.yesLogout,
       secondButtonLabel: l10n.cancel,
       isCritical: true,
-      firstButtonOnTap: () => UserService.instance.logout(context),
+      firstButtonOnTap: () async {
+        await UserService.instance.logout(context);
+        if (!hasOtherProfiles) return;
+        // Drop the profile we just logged out of and fall back to the next
+        // one, rather than leaving the user on the sign in screen.
+        if (await ProfileService.instance.removeActive()) {
+          unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
+        }
+      },
     );
   }
 }

@@ -1,5 +1,10 @@
 {
   "account": "Account",
+  "accounts": "Accounts",
+  "addAccount": "Add account",
+  "offlineVault": "Offline vault",
+  "switchAccount": "Switch account",
+  "alreadySignedInToAccount": "You are already signed in to this account",
   "unlock": "Unlock",
   "recoveryKey": "Recovery key",
   "counterAppBarTitle": "Counter",

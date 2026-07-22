@@ -34,8 +34,8 @@ class Configuration extends BaseConfiguration
   late FlutterSecureStorage _secureStorage;
 
   @override
-  Future<void> init(List<EnteBaseDatabase> dbs) async {
-    await super.init(dbs);
+  Future<void> init(List<EnteBaseDatabase> dbs, {String scope = ""}) async {
+    await super.init(dbs, scope: scope);
     _preferences = await SharedPreferences.getInstance();
     _secureStorage = const FlutterSecureStorage(
       iOptions: IOSOptions(
@@ -47,13 +47,27 @@ class Configuration extends BaseConfiguration
     await _initOnlineAccount();
   }
 
+  @override
+  Future<void> setScope(String scope) async {
+    if (scope == this.scope) return;
+    _authSecretKey = null;
+    _offlineAuthKey = null;
+    await super.setScope(scope);
+    await _initOfflineAccount();
+    await _initOnlineAccount();
+  }
+
   Future<void> _initOfflineAccount() async {
-    _offlineAuthKey = await _secureStorage.read(key: offlineAuthSecretKey);
+    _offlineAuthKey = await _secureStorage.read(
+      key: scopedKey(offlineAuthSecretKey),
+    );
   }
 
   Future<void> _initOnlineAccount() async {
     if (hasConfiguredAccount()) {
-      _authSecretKey = await _secureStorage.read(key: authSecretKeyKey);
+      _authSecretKey = await _secureStorage.read(
+        key: scopedKey(authSecretKeyKey),
+      );
     }
   }
 
@@ -74,7 +88,10 @@ class Configuration extends BaseConfiguration
 
   Future<void> setAuthSecretKey(String? authSecretKey) async {
     _authSecretKey = authSecretKey;
-    await _secureStorage.write(key: authSecretKeyKey, value: authSecretKey);
+    await _secureStorage.write(
+      key: scopedKey(authSecretKeyKey),
+      value: authSecretKey,
+    );
   }
 
   Uint8List? getAuthSecretKey() {
@@ -90,32 +107,43 @@ class Configuration extends BaseConfiguration
   }
 
   bool hasOptedForOfflineMode() {
-    return _preferences.getBool(hasOptedForOfflineModeKey) ?? false;
+    return _preferences.getBool(scopedKey(hasOptedForOfflineModeKey)) ?? false;
   }
 
   Future<void> optForOfflineMode() async {
-    if ((await _secureStorage.containsKey(key: offlineAuthSecretKey))) {
-      _offlineAuthKey = await _secureStorage.read(key: offlineAuthSecretKey);
+    final key = scopedKey(offlineAuthSecretKey);
+    if ((await _secureStorage.containsKey(key: key))) {
+      _offlineAuthKey = await _secureStorage.read(key: key);
     } else {
       _offlineAuthKey = CryptoUtil.bin2base64(CryptoUtil.generateKey());
-      await _secureStorage.write(
-        key: offlineAuthSecretKey,
-        value: _offlineAuthKey,
-      );
+      await _secureStorage.write(key: key, value: _offlineAuthKey);
     }
-    await _preferences.setBool(hasOptedForOfflineModeKey, true);
+    await _preferences.setBool(scopedKey(hasOptedForOfflineModeKey), true);
+  }
+
+  /// Discards this scope's offline vault key.
+  ///
+  /// Unlike [logout], which intentionally preserves the offline key, this is
+  /// called when a profile is removed outright and its vault should go away.
+  Future<void> clearOfflineAccount() async {
+    _offlineAuthKey = null;
+    await _secureStorage.delete(key: scopedKey(offlineAuthSecretKey));
+    await _preferences.remove(scopedKey(hasOptedForOfflineModeKey));
   }
 
   // Backup password methods
   Future<String?> getBackupPassword() async {
-    return _secureStorage.read(key: autoBackupPasswordKey);
+    return _secureStorage.read(key: scopedKey(autoBackupPasswordKey));
   }
 
   Future<void> setBackupPassword(String password) async {
-    await _secureStorage.write(key: autoBackupPasswordKey, value: password);
+    await _secureStorage.write(
+      key: scopedKey(autoBackupPasswordKey),
+      value: password,
+    );
   }
 
   Future<void> clearBackupPassword() async {
-    await _secureStorage.delete(key: autoBackupPasswordKey);
+    await _secureStorage.delete(key: scopedKey(autoBackupPasswordKey));
   }
 }

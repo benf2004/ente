@@ -35,9 +35,12 @@ class AuthenticatorService {
   late AuthenticatorGateway _gateway;
   late AuthenticatorDB _db;
   late OfflineAuthenticatorDB _offlineDb;
-  final String _lastEntitySyncTime = "lastEntitySyncTime";
+  // Scoped, so that switching profiles does not carry one account's sync
+  // cursor over to another's — which would silently skip its entities.
+  String get _lastEntitySyncTime => _config.scopedKey("lastEntitySyncTime");
   Future<bool>? _onlineSyncInFlight;
   bool _onlineSyncRerunRequested = false;
+  StreamSubscription<SignedInEvent>? _signedInSubscription;
 
   AuthenticatorService._privateConstructor();
 
@@ -51,6 +54,8 @@ class AuthenticatorService {
         : AccountMode.online;
   }
 
+  /// Safe to call again when the active profile changes; the event listener is
+  /// only registered once, so switching profiles cannot stack up duplicates.
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _db = AuthenticatorDB.instance;
@@ -59,7 +64,7 @@ class AuthenticatorService {
     if (Configuration.instance.hasConfiguredAccount()) {
       unawaited(onlineSync());
     }
-    Bus.instance.on<SignedInEvent>().listen((event) {
+    _signedInSubscription ??= Bus.instance.on<SignedInEvent>().listen((event) {
       unawaited(onlineSync());
     });
   }
@@ -159,6 +164,14 @@ class AuthenticatorService {
     } else {
       await _offlineDb.deleteByIDs(generatedIDs: [genID]);
     }
+  }
+
+  /// Waits for any sync already underway to settle.
+  ///
+  /// Callers switching profiles must await this, so that a sync started for
+  /// the outgoing account cannot write into the incoming account's database.
+  Future<void> waitForPendingSync() async {
+    await _onlineSyncInFlight;
   }
 
   Future<bool> onlineSync() {

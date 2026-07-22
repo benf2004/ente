@@ -8,7 +8,9 @@ import 'package:ente_auth/l10n/l10n.dart';
 import 'package:ente_auth/ui/components/recovery_key_sheet.dart';
 import 'package:ente_auth/ui/home_page.dart';
 import 'package:ente_auth/ui/settings/components/auth_settings_item.dart';
+import 'package:ente_auth/ui/settings/components/auth_settings_navigation.dart';
 import 'package:ente_auth/ui/settings/components/auth_settings_page_scaffold.dart';
+import 'package:ente_auth/ui/settings/profiles_settings_page.dart';
 import 'package:ente_auth/utils/dialog_util.dart';
 import 'package:ente_components/ente_components.dart';
 import 'package:ente_crypto_api/ente_crypto_api.dart';
@@ -25,6 +27,14 @@ class AccountSettingsPage extends StatelessWidget {
     return AuthSettingsPageScaffold(
       title: l10n.account,
       children: [
+        AuthSettingsItem(
+          title: l10n.switchAccount,
+          icon: HugeIcons.strokeRoundedUserSwitch,
+          semanticsIdentifier: 'auth_settings_switch_account',
+          onTap: () =>
+              pushAuthSettingsPage(context, const ProfilesSettingsPage()),
+        ),
+        const SizedBox(height: Spacing.sm),
         AuthSettingsItem(
           title: l10n.changeEmail,
           icon: HugeIcons.strokeRoundedMailEdit01,

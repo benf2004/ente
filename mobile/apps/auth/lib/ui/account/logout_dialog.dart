@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:ente_auth/core/configuration.dart';
 import 'package:ente_auth/l10n/l10n.dart';
+import 'package:ente_auth/services/profile_service.dart';
 import 'package:ente_auth/store/authenticator_db.dart';
 import 'package:ente_auth/utils/dialog_util.dart';
 import 'package:flutter/material.dart';
@@ -51,8 +54,15 @@ Future<void> autoLogoutAlert(BuildContext context) async {
 }
 
 Future<void> _logout(BuildContext context, AppLocalizations l10n) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final hasOtherProfiles = ProfileService.instance.hasMultipleProfiles;
   final dialog = createProgressDialog(context, l10n.loggingOut);
   await dialog.show();
   await Configuration.instance.logout();
+  // Only this profile's session expired; drop it and fall back to the next one
+  // rather than sending the user to the sign in screen.
+  if (hasOtherProfiles && await ProfileService.instance.removeActive()) {
+    unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
+  }
   await dialog.hide();
 }
