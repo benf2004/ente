@@ -19,11 +19,19 @@ import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 
 class AccountSettingsPage extends StatelessWidget {
-  const AccountSettingsPage({super.key});
+  const AccountSettingsPage({super.key, this.hasAccountOverride});
+
+  /// Overrides whether an account backs the active profile. Only for tests,
+  /// which have no initialized [Configuration] to ask.
+  final bool? hasAccountOverride;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    // An offline vault has no account behind it, so everything below the
+    // switcher would be meaningless — and reading its recovery key would throw.
+    final hasAccount =
+        hasAccountOverride ?? Configuration.instance.hasConfiguredAccount();
     return AuthSettingsPageScaffold(
       title: l10n.account,
       children: [
@@ -34,31 +42,33 @@ class AccountSettingsPage extends StatelessWidget {
           onTap: () =>
               pushAuthSettingsPage(context, const ProfilesSettingsPage()),
         ),
-        const SizedBox(height: Spacing.sm),
-        AuthSettingsItem(
-          title: l10n.changeEmail,
-          icon: HugeIcons.strokeRoundedMailEdit01,
-          onTap: () => _changeEmail(context),
-        ),
-        const SizedBox(height: Spacing.sm),
-        AuthSettingsItem(
-          title: l10n.changePassword,
-          icon: HugeIcons.strokeRoundedLockPassword,
-          onTap: () => _changePassword(context),
-        ),
-        const SizedBox(height: Spacing.sm),
-        AuthSettingsItem(
-          title: l10n.recoveryKey,
-          icon: HugeIcons.strokeRoundedKey01,
-          onTap: () => _showRecoveryKey(context),
-        ),
-        const SizedBox(height: Spacing.sm),
-        AuthSettingsItem(
-          title: l10n.deleteAccount,
-          icon: HugeIcons.strokeRoundedDelete02,
-          isDestructive: true,
-          onTap: () => _deleteAccount(context),
-        ),
+        if (hasAccount) ...[
+          const SizedBox(height: Spacing.sm),
+          AuthSettingsItem(
+            title: l10n.changeEmail,
+            icon: HugeIcons.strokeRoundedMailEdit01,
+            onTap: () => _changeEmail(context),
+          ),
+          const SizedBox(height: Spacing.sm),
+          AuthSettingsItem(
+            title: l10n.changePassword,
+            icon: HugeIcons.strokeRoundedLockPassword,
+            onTap: () => _changePassword(context),
+          ),
+          const SizedBox(height: Spacing.sm),
+          AuthSettingsItem(
+            title: l10n.recoveryKey,
+            icon: HugeIcons.strokeRoundedKey01,
+            onTap: () => _showRecoveryKey(context),
+          ),
+          const SizedBox(height: Spacing.sm),
+          AuthSettingsItem(
+            title: l10n.deleteAccount,
+            icon: HugeIcons.strokeRoundedDelete02,
+            isDestructive: true,
+            onTap: () => _deleteAccount(context),
+          ),
+        ],
       ],
     );
   }

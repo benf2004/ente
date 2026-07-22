@@ -59,6 +59,62 @@ void main() {
     }
   });
 
+  testWidgets('an offline vault can still reach the switcher', (tester) async {
+    // Regression: with the account actions hidden for a vault that is not
+    // signed in, the switcher must still be there — it is the only way back
+    // off an offline vault.
+    await _pumpAccountPage(tester, hasAccount: false);
+
+    final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+    expect(find.text(l10n.switchAccount), findsOneWidget);
+    expect(find.text(l10n.changePassword), findsNothing);
+    expect(find.text(l10n.recoveryKey), findsNothing);
+    expect(find.text(l10n.deleteAccount), findsNothing);
+
+    await tester.tap(find.text(l10n.switchAccount));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfilesSettingsPage), findsOneWidget);
+  });
+
+  testWidgets('the add row is disabled once the profile cap is reached', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      "profilesV1": List.generate(
+        ProfileService.maxProfiles,
+        (i) =>
+            '{"scope":"acct_$i.","kind":"online","userID":$i,'
+            '"email":"user$i@example.org"}',
+      ),
+      "profilesActiveScope": "acct_0.",
+    });
+    await ProfileService.instance.init();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ComponentTheme.lightTheme(app: ComponentApp.auth),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const ProfilesSettingsPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+    expect(find.text(l10n.addAccount), findsOneWidget);
+    expect(
+      find.text(l10n.maxAccountsReached(ProfileService.maxProfiles)),
+      findsOneWidget,
+    );
+
+    // Disabled rather than merely unstyled: tapping must not start an add.
+    final row = tester.widget<MenuComponent>(
+      find.widgetWithText(MenuComponent, l10n.addAccount),
+    );
+    expect(row.onTap, isNull);
+  });
+
   testWidgets('the switcher row sits above the account actions', (
     tester,
   ) async {
@@ -72,13 +128,13 @@ void main() {
   });
 }
 
-Future<void> _pumpAccountPage(WidgetTester tester) {
+Future<void> _pumpAccountPage(WidgetTester tester, {bool hasAccount = true}) {
   return tester.pumpWidget(
     MaterialApp(
       theme: ComponentTheme.lightTheme(app: ComponentApp.auth),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const AccountSettingsPage(),
+      home: AccountSettingsPage(hasAccountOverride: hasAccount),
     ),
   );
 }

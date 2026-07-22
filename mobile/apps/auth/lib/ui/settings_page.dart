@@ -63,7 +63,12 @@ class SettingsPage extends StatelessWidget {
   }) {
     final l10n = context.l10n;
     final contents = <Widget>[];
-    if (hasLoggedIn) {
+    // Also shown for an offline vault once more than one profile exists:
+    // the account switcher lives behind this row, and without it there is no
+    // way back off a vault that is not signed in.
+    final showAccount =
+        hasLoggedIn || ProfileService.instance.hasMultipleProfiles;
+    if (showAccount) {
       contents.add(
         AuthSettingsItem(
           title: l10n.account,
@@ -74,7 +79,8 @@ class SettingsPage extends StatelessWidget {
         ),
       );
       contents.add(const SizedBox(height: Spacing.sm));
-    } else {
+    }
+    if (!hasLoggedIn) {
       contents.add(
         BannerComponent(
           title: l10n.signInToBackup,

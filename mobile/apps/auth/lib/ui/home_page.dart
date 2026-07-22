@@ -1459,7 +1459,8 @@ class _HomePageState extends State<HomePage> {
         const AuthLogoWidget(height: 18),
         const SizedBox(height: 2),
         Text(
-          profile?.email ?? context.l10n.offlineVault,
+          profile?.displayName(context.l10n.offlineVault) ??
+              context.l10n.offlineVault,
           style: getEnteTextTheme(
             context,
           ).miniMuted.copyWith(color: colorScheme.textMuted),

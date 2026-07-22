@@ -27,6 +27,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// preference keys. Everything else an account owns lives under that profile's
 /// [Profile.scope]; see [Configuration.scopedKey].
 class ProfileService {
+  /// The most vaults a user can keep signed in at once, counting offline ones.
+  /// Each costs a database, a keychain entry and a row in the switcher.
+  static const maxProfiles = 5;
+
   static const _profilesKey = "profilesV1";
   static const _activeScopeKey = "profilesActiveScope";
   static const _nextIdKey = "profilesNextId";
@@ -59,6 +63,8 @@ class ProfileService {
   String get activeScope => _activeScope;
 
   bool get hasMultipleProfiles => _profiles.length > 1;
+
+  bool get canAddProfile => _profiles.length < maxProfiles;
 
   Profile? get activeProfile =>
       _profiles.where((profile) => profile.scope == _activeScope).firstOrNull;
@@ -138,6 +144,28 @@ class ProfileService {
   Profile? profileForUser(int userID) =>
       _profiles.where((profile) => profile.userID == userID).firstOrNull;
 
+  /// Renames a vault. An empty name clears it, falling back to the email or to
+  /// the generic offline label.
+  Future<void> rename(String scope, String label) async {
+    final index = _profiles.indexWhere((profile) => profile.scope == scope);
+    if (index == -1) {
+      _logger.warning("Cannot rename unknown scope '$scope'");
+      return;
+    }
+    final trimmed = label.trim();
+    final updated = [..._profiles];
+    final existing = updated[index];
+    updated[index] = Profile(
+      scope: existing.scope,
+      kind: existing.kind,
+      userID: existing.userID,
+      email: existing.email,
+      label: trimmed.isEmpty ? null : trimmed,
+    );
+    _profiles = updated;
+    await _persist();
+  }
+
   /// Registers a profile, or updates it if [scope] is already known.
   Future<void> upsert(Profile profile) async {
     final index = _profiles.indexWhere((other) => other.scope == profile.scope);
@@ -193,25 +221,28 @@ class ProfileService {
   /// The caller must follow up with either [commitAdd] or [abortAdd]; until
   /// then the new scope is active but unregistered, so an interrupted sign in
   /// leaves nothing behind in the profile list.
-  Future<String> beginAdd(ProfileKind kind) async {
+  Future<String> beginAdd() async {
+    if (!canAddProfile) {
+      throw StateError("At most $maxProfiles profiles are supported");
+    }
     final scope = await _allocateScope();
-    _logger.info("Beginning add of a ${kind.name} profile at '$scope'");
+    _logger.info("Beginning add of a profile at '$scope'");
     _pendingAddReturnScope = _activeScope;
     await _applyScope(scope);
-    if (kind == ProfileKind.online) {
-      // The sign in flow navigates on its own and spans several pages, so we
-      // watch for it completing rather than trying to await it. By the time
-      // this fires the user id and email are always on the configuration:
-      // UserService saves those before it sets the token.
-      await _pendingAddSubscription?.cancel();
-      _pendingAddSubscription = Bus.instance.on<SignedInEvent>().listen((
-        event,
-      ) {
-        unawaited(_pendingAddSubscription?.cancel());
-        _pendingAddSubscription = null;
-        unawaited(commitAdd(scope));
-      });
-    }
+    // The sign in flow navigates on its own and spans several pages, so we
+    // watch for it completing rather than trying to await it. By the time this
+    // fires the user id and email are always on the configuration: UserService
+    // saves those before it sets the token.
+    //
+    // Registered whatever kind the caller has in mind, because the user picks
+    // between signing in and an offline vault inside the flow itself. Whichever
+    // path they take, commitAdd works out the kind.
+    await _pendingAddSubscription?.cancel();
+    _pendingAddSubscription = Bus.instance.on<SignedInEvent>().listen((event) {
+      unawaited(_pendingAddSubscription?.cancel());
+      _pendingAddSubscription = null;
+      unawaited(commitAdd(scope));
+    });
     return scope;
   }
 
@@ -220,6 +251,17 @@ class ProfileService {
   /// Returns the profile already signed in as this user, if any, in which case
   /// nothing is added — the caller should switch to it instead.
   Future<Profile?> commitAdd(String scope) async {
+    // Idempotent: the online path commits from the sign in listener while the
+    // offline path commits from the caller, and both can be live at once. A
+    // second call must not re-run the duplicate check, which would match the
+    // profile just added and erase a perfectly good vault.
+    if (_profiles.any((profile) => profile.scope == scope)) {
+      if (_activeScope != scope) {
+        _activeScope = scope;
+        await _persist();
+      }
+      return null;
+    }
     final config = Configuration.instance;
     final userID = config.getUserID();
     final existing = userID == null ? null : profileForUser(userID);

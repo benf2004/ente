@@ -128,6 +128,87 @@ void main() {
     });
   });
 
+  group('the profile cap', () {
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+    });
+
+    test('allows adding until the maximum is reached', () async {
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": List.generate(
+          ProfileService.maxProfiles - 1,
+          (i) => json.encode(
+            Profile(scope: "acct_$i.", kind: ProfileKind.online).toMap(),
+          ),
+        ),
+        "profilesActiveScope": "acct_0.",
+      });
+      await ProfileService.instance.init();
+
+      expect(ProfileService.instance.canAddProfile, isTrue);
+    });
+
+    test('refuses to begin an add once full', () async {
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": List.generate(
+          ProfileService.maxProfiles,
+          (i) => json.encode(
+            Profile(scope: "acct_$i.", kind: ProfileKind.online).toMap(),
+          ),
+        ),
+        "profilesActiveScope": "acct_0.",
+      });
+      await ProfileService.instance.init();
+
+      expect(ProfileService.instance.canAddProfile, isFalse);
+      expect(ProfileService.instance.beginAdd(), throwsStateError);
+      // The rejected attempt must not have consumed a scope or a profile slot.
+      expect(
+        ProfileService.instance.profiles,
+        hasLength(ProfileService.maxProfiles),
+      );
+    });
+  });
+
+  group('committing an add', () {
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": <String>[],
+        "profilesActiveScope": "",
+      });
+      await ProfileService.instance.init();
+    });
+
+    test('renaming a vault persists and can be cleared', () async {
+      await ProfileService.instance.upsert(
+        const Profile(scope: "acct_1.", kind: ProfileKind.offline),
+      );
+
+      await ProfileService.instance.rename("acct_1.", "  Work laptop  ");
+      expect(ProfileService.instance.profiles.single.label, "Work laptop");
+
+      await ProfileService.instance.rename("acct_1.", "   ");
+      expect(ProfileService.instance.profiles.single.label, isNull);
+    });
+
+    test('is idempotent for the same scope', () async {
+      // The online path commits from the sign in listener and the offline path
+      // commits from the caller. A second call must not re-run duplicate
+      // detection and discard the vault it just registered.
+      await ProfileService.instance.upsert(
+        const Profile(scope: "acct_1.", kind: ProfileKind.offline),
+      );
+
+      final result = await ProfileService.instance.commitAdd("acct_1.");
+
+      expect(result, isNull);
+      expect(ProfileService.instance.profiles, hasLength(1));
+      expect(ProfileService.instance.profiles.single.scope, "acct_1.");
+      expect(ProfileService.instance.activeScope, "acct_1.");
+    });
+  });
+
   group('Profile', () {
     test('survives a serialization round trip', () {
       const profile = Profile(
@@ -143,6 +224,40 @@ void main() {
       expect(restored.kind, profile.kind);
       expect(restored.userID, profile.userID);
       expect(restored.email, profile.email);
+    });
+
+    test('falls back through label, email, then the offline name', () {
+      const named = Profile(
+        scope: "acct_1.",
+        kind: ProfileKind.offline,
+        label: "Work laptop",
+      );
+      const online = Profile(
+        scope: "acct_2.",
+        kind: ProfileKind.online,
+        email: "someone@example.org",
+      );
+      const bare = Profile(scope: "acct_3.", kind: ProfileKind.offline);
+      const blank = Profile(
+        scope: "acct_4.",
+        kind: ProfileKind.offline,
+        label: "   ",
+      );
+
+      expect(named.displayName("Offline vault"), "Work laptop");
+      expect(online.displayName("Offline vault"), "someone@example.org");
+      expect(bare.displayName("Offline vault"), "Offline vault");
+      expect(blank.displayName("Offline vault"), "Offline vault");
+    });
+
+    test('a label survives a serialization round trip', () {
+      const profile = Profile(
+        scope: "acct_1.",
+        kind: ProfileKind.offline,
+        label: "Work laptop",
+      );
+
+      expect(Profile.fromMap(profile.toMap()).label, "Work laptop");
     });
 
     test('the legacy profile is flagged as such', () {

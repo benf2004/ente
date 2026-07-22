@@ -12,11 +12,16 @@ class Profile {
   final int? userID;
   final String? email;
 
+  /// A name the user gave this vault. Offline vaults have no email to identify
+  /// them by, so without one they are all just "Offline vault".
+  final String? label;
+
   const Profile({
     required this.scope,
     required this.kind,
     this.userID,
     this.email,
+    this.label,
   });
 
   bool get isOffline => kind == ProfileKind.offline;
@@ -24,12 +29,21 @@ class Profile {
   /// True for the account that predates multi-account support.
   bool get isLegacy => scope.isEmpty;
 
-  Profile copyWith({int? userID, String? email}) {
+  /// What to call this vault in the switcher and the app bar. [offlineFallback]
+  /// is passed in rather than read here so the model stays free of l10n.
+  String displayName(String offlineFallback) {
+    final named = label?.trim();
+    if (named != null && named.isNotEmpty) return named;
+    return email ?? offlineFallback;
+  }
+
+  Profile copyWith({int? userID, String? email, String? label}) {
     return Profile(
       scope: scope,
       kind: kind,
       userID: userID ?? this.userID,
       email: email ?? this.email,
+      label: label ?? this.label,
     );
   }
 
@@ -39,6 +53,7 @@ class Profile {
       'kind': kind.name,
       'userID': userID,
       'email': email,
+      'label': label,
     };
   }
 
@@ -51,6 +66,7 @@ class Profile {
       ),
       userID: map['userID'] as int?,
       email: map['email'] as String?,
+      label: map['label'] as String?,
     );
   }
 
