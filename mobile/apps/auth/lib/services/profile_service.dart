@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:ente_accounts/services/user_service.dart';
 import 'package:ente_auth/core/configuration.dart';
 import 'package:ente_auth/events/profile_switched_event.dart';
 import 'package:ente_auth/models/profile.dart';
@@ -212,6 +213,11 @@ class ProfileService {
     await LocalBackupService.instance.init(
       hasOptedForOfflineMode: Configuration.instance.hasOptedForOfflineMode(),
     );
+    // This notifier is process wide and is otherwise only written when the
+    // sign in flow records a typed address, so without this it keeps showing
+    // the previous profile's email — or one that was typed and abandoned.
+    UserService.instance.emailValueNotifier.value = Configuration.instance
+        .getEmail();
     Bus.instance.fire(ProfileSwitchedEvent());
   }
 

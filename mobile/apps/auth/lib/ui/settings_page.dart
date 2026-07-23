@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ente_accounts/services/user_service.dart';
 import 'package:ente_auth/core/configuration.dart';
 import 'package:ente_auth/l10n/l10n.dart';
+import 'package:ente_auth/models/profile.dart';
 import 'package:ente_auth/onboarding/view/onboarding_page.dart';
 import 'package:ente_auth/services/profile_service.dart';
 import 'package:ente_auth/store/code_store.dart';
@@ -30,6 +31,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 
+/// What to show under the Settings title.
+///
+/// The active profile is the source of truth, as it is for the home app bar.
+/// [email] comes from a process wide notifier that the sign in flow writes the
+/// moment an address is typed, so on its own it will happily show another
+/// profile's email — or one that was never signed in to.
+String? settingsSubtitle({
+  required Profile? profile,
+  required String? email,
+  required bool hasLoggedIn,
+  required String offlineFallback,
+}) {
+  if (profile != null) {
+    return profile.displayName(offlineFallback);
+  }
+  return hasLoggedIn ? email : null;
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -51,7 +70,12 @@ class SettingsPage extends StatelessWidget {
       builder: (context, email, _) => _buildSettings(
         context,
         hasLoggedIn: hasLoggedIn,
-        email: hasLoggedIn ? email : null,
+        email: settingsSubtitle(
+          profile: ProfileService.instance.activeProfile,
+          email: email,
+          hasLoggedIn: hasLoggedIn,
+          offlineFallback: context.l10n.offlineVault,
+        ),
       ),
     );
   }
