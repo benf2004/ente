@@ -10,19 +10,11 @@ license = "AGPL-3.0-only"
 [features]
 museum = []
 
-[[test]]
-name = "paste"
-required-features = ["museum"]
-
-[[test]]
-name = "sync"
-required-features = ["museum"]
-
 [dependencies]
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
 ente-accounts.workspace = true
-ente-core = { workspace = true, features = ["srp"] }
+ente-core.workspace = true
 ente-paste.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -32,7 +24,6 @@ tokio = { version = "1.41", features = ["full"] }
 futures = "0.3"
 
 # Cryptography - using ente-core pure Rust implementation
-base64 = "0.22"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Storage

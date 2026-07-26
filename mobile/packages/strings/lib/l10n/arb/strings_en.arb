@@ -137,7 +137,7 @@
   "@email": {
     "description": "Email field label"
   },
-  "emailHint": "Enter your email id",
+  "emailHint": "Enter your email address",
   "verify": "Verify",
   "@verify": {
     "description": "Verify button label"
@@ -333,6 +333,10 @@
   "enteLocker": "Ente Locker",
   "@enteLocker": {
     "description": "Product name"
+  },
+  "moreFrom": "More from",
+  "@moreFrom": {
+    "description": "Heading shown above links to other Ente apps"
   },
   "confirmDeleteAccountAcrossApps": "I understand this deletes my data across Ente Photos, Ente Auth, and Ente Locker.",
   "@confirmDeleteAccountAcrossApps": {
