@@ -2,12 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use ente_core::{crypto::decode_b64, http::Error as HttpError};
+use ente_core::{b64, http};
 use ente_space::{
     AccountSpaceCtx, CreatedSpace, DecryptedMessage, DecryptedPost, DecryptedSpaceProfile,
     MessageConversationActivity, MessageResponse, OpenAccountSpaceCtxInput, PostPhotoAssetOptions,
     PostResponse, ProfileAvatarResponse, ProfileCoverResponse, SpaceActorResponse,
-    SpaceError as CoreSpaceError,
 };
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen as swb;
@@ -42,23 +41,25 @@ impl WasmSpaceError {
     }
 }
 
-impl From<CoreSpaceError> for WasmSpaceError {
-    fn from(e: CoreSpaceError) -> Self {
+impl From<ente_space::SpaceError> for WasmSpaceError {
+    fn from(e: ente_space::SpaceError) -> Self {
         let (code, status) = match &e {
-            CoreSpaceError::Http(HttpError::Http { status, .. }) => ("http", Some(*status)),
-            CoreSpaceError::Http(HttpError::Api { status, code, .. }) => {
+            ente_space::SpaceError::Http(http::Error::Http { status, .. }) => {
+                ("http", Some(*status))
+            }
+            ente_space::SpaceError::Http(http::Error::Api { status, code, .. }) => {
                 (code.as_str(), Some(*status))
             }
-            CoreSpaceError::Http(HttpError::Network(_)) => ("network", None),
-            CoreSpaceError::Http(HttpError::Parse(_)) => ("parse", None),
-            CoreSpaceError::Crypto(_) => ("crypto", None),
-            CoreSpaceError::Auth(_) => ("auth", None),
-            CoreSpaceError::InvalidInput(_) => ("invalid_input", None),
-            CoreSpaceError::MissingSecretKey => ("missing_secret_key", None),
-            CoreSpaceError::MissingFriendSealedSpaceKey => {
+            ente_space::SpaceError::Http(http::Error::Network(_)) => ("network", None),
+            ente_space::SpaceError::Http(http::Error::Parse(_)) => ("parse", None),
+            ente_space::SpaceError::Crypto(_) => ("crypto", None),
+            ente_space::SpaceError::Base64Decode(_) => ("base64_decode", None),
+            ente_space::SpaceError::InvalidInput(_) => ("invalid_input", None),
+            ente_space::SpaceError::MissingSecretKey => ("missing_secret_key", None),
+            ente_space::SpaceError::MissingFriendSealedSpaceKey => {
                 ("missing_friend_sealed_space_key", None)
             }
-            CoreSpaceError::EntityKeyConflict => ("entity_key_conflict", None),
+            ente_space::SpaceError::EntityKeyConflict => ("entity_key_conflict", None),
         };
         Self {
             code: code.to_owned(),
@@ -233,15 +234,24 @@ struct FriendRequestJs {
     created_at: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SentFriendRequestJs {
+    request_id: i64,
+    target: ActorJs,
+    created_at: String,
+}
+
 fn decode_b64_field(value: &str) -> Result<Vec<u8>, WasmSpaceError> {
-    decode_b64(value)
-        .map_err(CoreSpaceError::from)
+    b64::decode(value)
+        .map_err(ente_space::SpaceError::from)
         .map_err(Into::into)
 }
 
 fn utf8_field(bytes: Vec<u8>, field: &str) -> Result<String, WasmSpaceError> {
-    String::from_utf8(bytes)
-        .map_err(|err| CoreSpaceError::InvalidInput(format!("invalid {field} utf8: {err}")).into())
+    String::from_utf8(bytes).map_err(|err| {
+        ente_space::SpaceError::InvalidInput(format!("invalid {field} utf8: {err}")).into()
+    })
 }
 
 fn optional_utf8_field(
@@ -579,7 +589,7 @@ impl SpaceAccountCtxHandle {
             .resolve_owned_space_key(&space_id)
             .await?
             .ok_or_else(|| {
-                CoreSpaceError::InvalidInput(format!(
+                ente_space::SpaceError::InvalidInput(format!(
                     "space {space_id} is not owned by the account"
                 ))
             })?;
@@ -609,7 +619,7 @@ impl SpaceAccountCtxHandle {
             .resolve_owned_space_key(&space_id)
             .await?
             .ok_or_else(|| {
-                CoreSpaceError::InvalidInput(format!(
+                ente_space::SpaceError::InvalidInput(format!(
                     "space {space_id} is not owned by the account"
                 ))
             })?;
@@ -1162,6 +1172,24 @@ impl SpaceAccountCtxHandle {
         swb::to_value(&items).map_err(Into::into)
     }
 
+    /// List outgoing friend requests for the current account.
+    #[wasm_bindgen(js_name = listSentFriendRequests)]
+    pub async fn list_sent_friend_requests(
+        &self,
+        space_id: String,
+    ) -> Result<JsValue, WasmSpaceError> {
+        let requests = self.inner.list_sent_friend_requests(&space_id).await?;
+        let mut items = Vec::with_capacity(requests.len());
+        for request in requests {
+            items.push(SentFriendRequestJs {
+                request_id: request.request_id,
+                target: public_actor_to_js(request.target)?,
+                created_at: request.created_at,
+            });
+        }
+        swb::to_value(&items).map_err(Into::into)
+    }
+
     /// Confirm an incoming friend request.
     #[wasm_bindgen(js_name = confirmFriendRequest)]
     pub async fn confirm_friend_request(
@@ -1178,7 +1206,7 @@ impl SpaceAccountCtxHandle {
         .map_err(Into::into)
     }
 
-    /// Delete an incoming friend request.
+    /// Delete a pending friend request.
     #[wasm_bindgen(js_name = deleteFriendRequest)]
     pub async fn delete_friend_request(
         &self,
