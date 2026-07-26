@@ -72,4 +72,20 @@ void main() {
 
     expect(subtitle, "someone@example.org");
   });
+
+  group('showAccountSection', () {
+    test('shown for a lone offline vault', () {
+      // The switcher lives behind this row; without it an offline-only user
+      // could never add or reach another account.
+      expect(showAccountSection(hasLoggedIn: false, profileCount: 1), isTrue);
+    });
+
+    test('shown when signed in', () {
+      expect(showAccountSection(hasLoggedIn: true, profileCount: 0), isTrue);
+    });
+
+    test('hidden when signed out with no profiles', () {
+      expect(showAccountSection(hasLoggedIn: false, profileCount: 0), isFalse);
+    });
+  });
 }

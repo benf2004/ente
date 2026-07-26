@@ -81,6 +81,39 @@ class Configuration extends BaseConfiguration
   ];
 
   @override
+  // The legacy profile stores its keys unprefixed, so its logout clears
+  // preferences wholesale — these prefixes are what must survive that:
+  // other profiles' data ("acct_"), the profile registry ("profiles"), and
+  // the app-wide lock screen state ("ls_", "should_show_lock_screen" —
+  // literals rather than lock_screen imports, to keep this package-independent)
+  // whose keychain PIN is preserved separately while other profiles remain.
+  List<String> get logoutPreservedKeyPrefixes => const [
+    "acct_",
+    "profiles",
+    "ls_",
+    "should_show_lock_screen",
+  ];
+
+  /// Erases every secure storage entry a removed profile owns.
+  ///
+  /// Only for non-legacy scopes: the legacy profile's entries are cleared by
+  /// [logout] via [resetSecureStorage], and its offline key is deliberately
+  /// kept across logouts.
+  Future<void> clearSecureStorageForScope(String scope) async {
+    if (scope.isEmpty) {
+      return;
+    }
+    final keys = {
+      ...secureStorageKeys,
+      offlineAuthSecretKey,
+      autoBackupPasswordKey,
+    };
+    for (final key in keys) {
+      await _secureStorage.delete(key: "$scope$key");
+    }
+  }
+
+  @override
   Future<void> logout({bool autoLogout = false}) async {
     _authSecretKey = null;
     await super.logout();

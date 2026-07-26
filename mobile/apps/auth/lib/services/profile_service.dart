@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:ente_accounts/services/user_service.dart';
 import 'package:ente_auth/core/configuration.dart';
-import 'package:ente_auth/events/profile_switched_event.dart';
 import 'package:ente_auth/models/profile.dart';
 import 'package:ente_auth/services/authenticator_service.dart';
 import 'package:ente_auth/services/billing_service.dart';
@@ -49,6 +48,7 @@ class ProfileService {
   /// The profile to fall back to if an in progress add is abandoned.
   String? _pendingAddReturnScope;
   StreamSubscription<SignedInEvent>? _pendingAddSubscription;
+  StreamSubscription<SignedInEvent>? _signedInSubscription;
   bool _rejectedDuplicateAdd = false;
 
   /// Whether the last add was rejected because that account was already
@@ -84,6 +84,14 @@ class ProfileService {
           .map((e) => Profile.fromMap(json.decode(e) as Map<String, dynamic>))
           .toList();
       _activeScope = _prefs.getString(_activeScopeKey) ?? "";
+      if (_profiles.isEmpty && _hasLegacyAccountData()) {
+        // An account exists but was never registered — a sign in that predates
+        // profile registration, or a registry lost to an older bug. Heal it,
+        // or the account becomes unreachable the moment another one is added.
+        _logger.warning("Unregistered legacy account found, re-seeding");
+        await _seedFromLegacyState();
+      }
+      await _reconcile();
       if (_profiles.isNotEmpty && activeProfile == null) {
         _logger.warning(
           "Active scope '$_activeScope' is unknown, falling back to the first "
@@ -93,8 +101,95 @@ class ProfileService {
         await _persist();
       }
     }
+    // Registers the account for a sign in that happens outside the add flow —
+    // most importantly the very first sign in on a fresh install, which
+    // otherwise would never appear in the switcher.
+    _signedInSubscription ??= Bus.instance.on<SignedInEvent>().listen((event) {
+      unawaited(ensureActiveProfileRegistered());
+    });
     _logger.info(
       "Loaded ${_profiles.length} profile(s), active '$_activeScope'",
+    );
+  }
+
+  bool _hasLegacyAccountData() {
+    return _prefs.containsKey(BaseConfiguration.tokenKey) ||
+        (_prefs.getBool(Configuration.hasOptedForOfflineModeKey) ?? false);
+  }
+
+  /// Drops profiles whose account data no longer exists.
+  ///
+  /// Some logout paths cannot know about profiles — the lock screen's
+  /// too-many-attempts logout and the revoked-session logout both live in
+  /// shared packages — so they clear the account's data but leave its record
+  /// behind. Without this, those records show up as vaults that can never be
+  /// opened.
+  Future<void> _reconcile() async {
+    bool hasAccountData(Profile profile) {
+      final scope = profile.scope;
+      return _prefs.containsKey("$scope${BaseConfiguration.tokenKey}") ||
+          _prefs.containsKey("$scope${BaseConfiguration.encryptedTokenKey}") ||
+          (_prefs.getBool("$scope${Configuration.hasOptedForOfflineModeKey}") ??
+              false);
+    }
+
+    final dead = _profiles.where((p) => !hasAccountData(p)).toList();
+    if (dead.isEmpty) {
+      return;
+    }
+    _logger.warning("Dropping ${dead.length} profile(s) with no data: $dead");
+    _profiles = _profiles.where(hasAccountData).toList();
+    if (_profiles.isEmpty) {
+      _activeScope = "";
+    } else if (activeProfile == null) {
+      _activeScope = _profiles.first.scope;
+    }
+    await _persist();
+  }
+
+  /// Ensures the account the configuration currently points at has a profile
+  /// record, creating or refreshing one.
+  ///
+  /// No-ops while an add is in flight: the add flow owns registration there,
+  /// and a plain upsert running first would make [commitAdd] take its
+  /// idempotent early return, bypassing the duplicate account check.
+  Future<void> ensureActiveProfileRegistered() async {
+    if (_pendingAddSubscription != null) {
+      return;
+    }
+    final config = Configuration.instance;
+    await registerProfileSnapshot(
+      scope: config.scope,
+      userID: config.getUserID(),
+      email: config.getEmail(),
+      isOnline: config.isLoggedIn(),
+    );
+  }
+
+  /// Registers or refreshes the profile for [scope], preserving any label the
+  /// user has given it.
+  ///
+  /// [isOnline] must be derived from the token alone (isLoggedIn), not from
+  /// hasConfiguredAccount: during sign up the signed in event fires before the
+  /// keys exist, and the stricter check would misfile the account as an
+  /// offline vault.
+  Future<void> registerProfileSnapshot({
+    required String scope,
+    int? userID,
+    String? email,
+    required bool isOnline,
+  }) async {
+    final existing = _profiles
+        .where((profile) => profile.scope == scope)
+        .firstOrNull;
+    await upsert(
+      Profile(
+        scope: scope,
+        kind: isOnline ? ProfileKind.online : ProfileKind.offline,
+        userID: userID ?? existing?.userID,
+        email: email ?? existing?.email,
+        label: existing?.label,
+      ),
     );
   }
 
@@ -199,26 +294,32 @@ class ProfileService {
   /// preferences — are deliberately left alone: they guard the app rather than
   /// any one vault.
   Future<void> _applyScope(String scope) async {
-    // Let a sync that is already running finish first, so that it cannot write
-    // the outgoing account's entities into the incoming account's database.
-    await AuthenticatorService.instance.waitForPendingSync();
-    await AuthenticatorDB.instance.setScope(scope);
-    await OfflineAuthenticatorDB.instance.setScope(scope);
-    await Configuration.instance.setScope(scope);
-    // Billing plans are per account, and the endpoint may differ between
-    // profiles, so both caches have to be rebuilt.
-    BillingService.instance.clearCache();
-    await Network.instance.init(Configuration.instance);
-    await AuthenticatorService.instance.init();
-    await LocalBackupService.instance.init(
-      hasOptedForOfflineMode: Configuration.instance.hasOptedForOfflineMode(),
-    );
-    // This notifier is process wide and is otherwise only written when the
-    // sign in flow records a typed address, so without this it keeps showing
-    // the previous profile's email — or one that was typed and abandoned.
-    UserService.instance.emailValueNotifier.value = Configuration.instance
-        .getEmail();
-    Bus.instance.fire(ProfileSwitchedEvent());
+    // Suspend syncing while the services change hands: the sync already in
+    // flight is awaited, and no new one can start and write the outgoing
+    // account's entities into the incoming account's database. Any sync
+    // requested meanwhile runs when syncing resumes — pointed at the new
+    // profile, which is the one it would be syncing anyway.
+    await AuthenticatorService.instance.suspendSync();
+    try {
+      await AuthenticatorDB.instance.setScope(scope);
+      await OfflineAuthenticatorDB.instance.setScope(scope);
+      await Configuration.instance.setScope(scope);
+      // Billing plans are per account, and the endpoint may differ between
+      // profiles, so both caches have to be rebuilt.
+      BillingService.instance.clearCache();
+      await Network.instance.init(Configuration.instance);
+      await AuthenticatorService.instance.init();
+      await LocalBackupService.instance.init(
+        hasOptedForOfflineMode: Configuration.instance.hasOptedForOfflineMode(),
+      );
+      // This notifier is process wide and is otherwise only written when the
+      // sign in flow records a typed address, so without this it keeps showing
+      // the previous profile's email — or one that was typed and abandoned.
+      UserService.instance.emailValueNotifier.value = Configuration.instance
+          .getEmail();
+    } finally {
+      AuthenticatorService.instance.resumeSync();
+    }
   }
 
   /// Starts adding a profile, returning the scope the sign in flow should run
@@ -231,6 +332,9 @@ class ProfileService {
     if (!canAddProfile) {
       throw StateError("At most $maxProfiles profiles are supported");
     }
+    // A rejection left over from an earlier add must not be reported against
+    // this one.
+    _rejectedDuplicateAdd = false;
     final scope = await _allocateScope();
     _logger.info("Beginning add of a profile at '$scope'");
     _pendingAddReturnScope = _activeScope;
@@ -257,11 +361,16 @@ class ProfileService {
   /// Returns the profile already signed in as this user, if any, in which case
   /// nothing is added — the caller should switch to it instead.
   Future<Profile?> commitAdd(String scope) async {
+    // The add's sign in listener has served its purpose whichever branch runs
+    // below; a live one left behind would mis-drive the next sign in.
+    await _pendingAddSubscription?.cancel();
+    _pendingAddSubscription = null;
     // Idempotent: the online path commits from the sign in listener while the
     // offline path commits from the caller, and both can be live at once. A
     // second call must not re-run the duplicate check, which would match the
     // profile just added and erase a perfectly good vault.
     if (_profiles.any((profile) => profile.scope == scope)) {
+      _pendingAddReturnScope = null;
       if (_activeScope != scope) {
         _activeScope = scope;
         await _persist();
@@ -280,9 +389,10 @@ class ProfileService {
     await upsert(
       Profile(
         scope: scope,
-        kind: config.hasConfiguredAccount()
-            ? ProfileKind.online
-            : ProfileKind.offline,
+        // From the token alone: during sign up this runs before the keys
+        // exist, and hasConfiguredAccount() would misfile the account as an
+        // offline vault.
+        kind: config.isLoggedIn() ? ProfileKind.online : ProfileKind.offline,
         userID: userID,
         email: config.getEmail(),
       ),
@@ -353,6 +463,9 @@ class ProfileService {
     for (final key in _prefs.getKeys().where((key) => key.startsWith(scope))) {
       await _prefs.remove(key);
     }
+    // Scopes are never reused, but the keychain entries of a half signed-in,
+    // abandoned add would otherwise linger forever.
+    await Configuration.instance.clearSecureStorageForScope(scope);
     await _deleteDatabases(scope);
   }
 

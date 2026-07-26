@@ -22,6 +22,9 @@ void main() {
         '{"scope":"","kind":"online","userID":1,"email":"first@example.org"}',
       ],
       "profilesActiveScope": "",
+      // Reconciliation drops profiles whose account data is missing, so each
+      // seeded profile needs its (scoped) token to survive init.
+      "token": "a-token",
     });
     await ProfileService.instance.init();
   });
@@ -88,6 +91,8 @@ void main() {
             '"email":"user$i@example.org"}',
       ),
       "profilesActiveScope": "acct_0.",
+      for (var i = 0; i < ProfileService.maxProfiles; i++)
+        "acct_$i.token": "token-$i",
     });
     await ProfileService.instance.init();
 

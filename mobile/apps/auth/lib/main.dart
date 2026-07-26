@@ -197,6 +197,10 @@ Future<void> _init(bool bool, {String? via}) async {
     Configuration.instance,
     hasOptedForOfflineMode: Configuration.instance.hasOptedForOfflineMode(),
     hideAppContentDefault: true,
+    // The lock guards the app, not any one vault: logging out of one of
+    // several profiles must not remove the PIN protecting the others.
+    shouldClearAppLockOnSignOut: () =>
+        !ProfileService.instance.hasMultipleProfiles,
   );
   if (shouldAllowAuthScreenCapture) {
     await LockScreenSettings.instance.setHideAppContent(false, persist: false);

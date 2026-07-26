@@ -94,17 +94,43 @@ void main() {
       expect(profiles.single.kind, ProfileKind.offline);
     });
 
-    test('an already seeded list is not re-derived', () async {
-      SharedPreferences.setMockInitialValues({});
-      await ProfileService.instance.init();
-      expect(ProfileService.instance.profiles, isEmpty);
-
-      // A token showing up later is a sign in, not a legacy account, so the
-      // empty list we already stored must win.
+    test('an empty list with an unregistered account is healed', () async {
+      // A sign in that predates profile registration (or a registry lost to
+      // an older bug) must resurface as a profile — otherwise the account
+      // becomes unreachable the moment another one is added.
       SharedPreferences.setMockInitialValues({
         "profilesV1": <String>[],
         "profilesActiveScope": "",
         BaseConfiguration.tokenKey: "a-token",
+        BaseConfiguration.userIDKey: 7,
+        BaseConfiguration.emailKey: "someone@example.org",
+      });
+      await ProfileService.instance.init();
+
+      final profiles = ProfileService.instance.profiles;
+      expect(profiles, hasLength(1));
+      expect(profiles.single.scope, isEmpty);
+      expect(profiles.single.kind, ProfileKind.online);
+      expect(profiles.single.userID, 7);
+    });
+
+    test('an empty list with an unregistered offline vault is healed', () async {
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": <String>[],
+        "profilesActiveScope": "",
+        Configuration.hasOptedForOfflineModeKey: true,
+      });
+      await ProfileService.instance.init();
+
+      final profiles = ProfileService.instance.profiles;
+      expect(profiles, hasLength(1));
+      expect(profiles.single.kind, ProfileKind.offline);
+    });
+
+    test('an empty list with no account data stays empty', () async {
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": <String>[],
+        "profilesActiveScope": "",
       });
       await ProfileService.instance.init();
 
@@ -119,12 +145,120 @@ void main() {
           ),
         ],
         "profilesActiveScope": "acct_9.",
+        "acct_1.token": "a-token",
       });
 
       await ProfileService.instance.init();
 
       expect(ProfileService.instance.activeScope, "acct_1.");
       expect(ProfileService.instance.activeProfile, isNotNull);
+    });
+  });
+
+  group('reconciliation', () {
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+    });
+
+    test('drops profiles whose account data is gone', () async {
+      // Logouts that live in shared packages (revoked session, too many
+      // unlock attempts) clear the account's data without knowing about
+      // profiles; the leftover record would be a vault that can never open.
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": [
+          json.encode(
+            const Profile(
+              scope: "acct_1.",
+              kind: ProfileKind.online,
+              userID: 1,
+            ).toMap(),
+          ),
+          json.encode(
+            const Profile(
+              scope: "acct_2.",
+              kind: ProfileKind.online,
+              userID: 2,
+            ).toMap(),
+          ),
+        ],
+        "profilesActiveScope": "acct_1.",
+        "acct_2.token": "a-token",
+      });
+
+      await ProfileService.instance.init();
+
+      final profiles = ProfileService.instance.profiles;
+      expect(profiles, hasLength(1));
+      expect(profiles.single.scope, "acct_2.");
+      expect(ProfileService.instance.activeScope, "acct_2.");
+    });
+
+    test('keeps offline vaults and encrypted-token accounts', () async {
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": [
+          json.encode(
+            const Profile(scope: "acct_1.", kind: ProfileKind.offline).toMap(),
+          ),
+          json.encode(
+            const Profile(scope: "acct_2.", kind: ProfileKind.online).toMap(),
+          ),
+        ],
+        "profilesActiveScope": "acct_1.",
+        "acct_1.${Configuration.hasOptedForOfflineModeKey}": true,
+        "acct_2.${BaseConfiguration.encryptedTokenKey}": "encrypted",
+      });
+
+      await ProfileService.instance.init();
+
+      expect(ProfileService.instance.profiles, hasLength(2));
+      expect(ProfileService.instance.activeScope, "acct_1.");
+    });
+  });
+
+  group('registering the active profile', () {
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({
+        "profilesV1": <String>[],
+        "profilesActiveScope": "",
+      });
+      await ProfileService.instance.init();
+    });
+
+    test('creates a record for a first sign in', () async {
+      await ProfileService.instance.registerProfileSnapshot(
+        scope: "",
+        userID: 7,
+        email: "someone@example.org",
+        isOnline: true,
+      );
+
+      final profile = ProfileService.instance.profiles.single;
+      expect(profile.scope, isEmpty);
+      expect(profile.kind, ProfileKind.online);
+      expect(profile.userID, 7);
+      expect(profile.email, "someone@example.org");
+    });
+
+    test('is idempotent and preserves the label', () async {
+      await ProfileService.instance.registerProfileSnapshot(
+        scope: "acct_1.",
+        isOnline: false,
+      );
+      await ProfileService.instance.rename("acct_1.", "Work laptop");
+
+      await ProfileService.instance.registerProfileSnapshot(
+        scope: "acct_1.",
+        userID: 3,
+        email: "someone@example.org",
+        isOnline: true,
+      );
+
+      final profile = ProfileService.instance.profiles.single;
+      expect(ProfileService.instance.profiles, hasLength(1));
+      expect(profile.label, "Work laptop");
+      expect(profile.kind, ProfileKind.online);
+      expect(profile.userID, 3);
     });
   });
 
@@ -142,6 +276,8 @@ void main() {
           ),
         ),
         "profilesActiveScope": "acct_0.",
+        for (var i = 0; i < ProfileService.maxProfiles - 1; i++)
+          "acct_$i.token": "token-$i",
       });
       await ProfileService.instance.init();
 
@@ -157,6 +293,8 @@ void main() {
           ),
         ),
         "profilesActiveScope": "acct_0.",
+        for (var i = 0; i < ProfileService.maxProfiles; i++)
+          "acct_$i.token": "token-$i",
       });
       await ProfileService.instance.init();
 

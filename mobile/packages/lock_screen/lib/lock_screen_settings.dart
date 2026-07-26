@@ -55,6 +55,7 @@ class LockScreenSettings {
     bool hideAppContentDefault = false,
     String appLogoAsset = 'assets/svg/app-logo.svg',
     double? appLogoHeight,
+    bool Function()? shouldClearAppLockOnSignOut,
   }) async {
     _config = config;
     _useLegacyHashFallback = useLegacyHashFallback;
@@ -73,7 +74,19 @@ class LockScreenSettings {
 
     await _clearLsDataInKeychainIfFreshInstall(hasOptedForOfflineMode);
 
+    // [shouldClearAppLockOnSignOut] lets multi-account apps keep the app-wide
+    // lock while other accounts remain signed in. Timing note: Bus is an
+    // async EventBus, so this listener does not run inside logout() itself —
+    // delivery is scheduled when SignedOutEvent is fired (the last step of
+    // logout) and runs before the caller's subsequent awaits resume. The
+    // callback therefore observes the account list as it was at logout time,
+    // before the caller prunes it. FIFO ordering, not synchrony, is what
+    // makes this work.
     Bus.instance.on<SignedOutEvent>().listen((event) {
+      if (shouldClearAppLockOnSignOut != null &&
+          !shouldClearAppLockOnSignOut()) {
+        return;
+      }
       removePinAndPassword();
     });
   }

@@ -55,14 +55,16 @@ Future<void> autoLogoutAlert(BuildContext context) async {
 
 Future<void> _logout(BuildContext context, AppLocalizations l10n) async {
   final navigator = Navigator.of(context, rootNavigator: true);
-  final hasOtherProfiles = ProfileService.instance.hasMultipleProfiles;
   final dialog = createProgressDialog(context, l10n.loggingOut);
   await dialog.show();
   await Configuration.instance.logout();
-  // Only this profile's session expired; drop it and fall back to the next one
-  // rather than sending the user to the sign in screen.
-  if (hasOtherProfiles && await ProfileService.instance.removeActive()) {
-    unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
-  }
+  // Always remove the profile record — its account data is gone either way —
+  // and let '/' decide where to land: the next profile's home when one
+  // remains, onboarding otherwise.
+  await ProfileService.instance.removeActive();
+  // Hidden before navigating: pushNamedAndRemoveUntil with an always-false
+  // predicate would take the dialog's route with it, and hiding afterwards
+  // would pop the freshly pushed root instead.
   await dialog.hide();
+  unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
 }

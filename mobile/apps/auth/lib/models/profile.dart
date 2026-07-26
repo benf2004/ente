@@ -37,15 +37,8 @@ class Profile {
     return email ?? offlineFallback;
   }
 
-  Profile copyWith({int? userID, String? email, String? label}) {
-    return Profile(
-      scope: scope,
-      kind: kind,
-      userID: userID ?? this.userID,
-      email: email ?? this.email,
-      label: label ?? this.label,
-    );
-  }
+  // No copyWith: its `?? this.x` pattern cannot clear a field, which is
+  // exactly what clearing a label needs — callers build a new Profile instead.
 
   Map<String, dynamic> toMap() {
     return {

@@ -148,19 +148,30 @@ class _ProfilesSettingsPageState extends State<ProfilesSettingsPage> {
     final signedIn = await Navigator.of(
       context,
     ).push<bool>(MaterialPageRoute(builder: (_) => const OnboardingPage()));
-    if (!mounted) return;
-    setState(() => _isBusy = false);
+    // Consumed before the mounted check: a successful sign in resets the
+    // navigation stack and unmounts this page, but a rejected duplicate still
+    // has to be reported — via the root navigator's context, which outlives
+    // this page. Left unconsumed, the flag would misfire on a later add.
     if (service.consumeRejectedDuplicateAdd()) {
       // Already signed in as this user; ProfileService put us back on the
       // profile that owns it.
+      if (mounted) setState(() => _isBusy = false);
+      if (!navigator.mounted) return;
+      // The root navigator outlives this page, which the sign in flow has
+      // usually unmounted by now — its context is the one that is still valid.
+      // ignore: use_build_context_synchronously
+      final l10n = navigator.context.l10n;
       await showErrorDialog(
-        context,
-        context.l10n.accounts,
-        context.l10n.alreadySignedInToAccount,
+        // ignore: use_build_context_synchronously
+        navigator.context,
+        l10n.accounts,
+        l10n.alreadySignedInToAccount,
       );
       if (mounted) setState(() {});
       return;
     }
+    if (!mounted) return;
+    setState(() => _isBusy = false);
     final config = Configuration.instance;
     // An offline vault counts as a completed add even though nobody signed in,
     // so it must not fall through to the abort below.

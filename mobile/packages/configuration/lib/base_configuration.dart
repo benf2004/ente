@@ -65,6 +65,27 @@ abstract class BaseConfiguration {
 
   List<String> get secureStorageKeys;
 
+  /// Preference key prefixes that survive an unscoped (legacy) logout.
+  ///
+  /// Empty (the default) keeps the historical behavior of wiping every
+  /// preference. Apps that keep several accounts in the same preference store
+  /// override this so that one account's logout cannot destroy the others'
+  /// data or the app's account registry.
+  List<String> get logoutPreservedKeyPrefixes => const [];
+
+  /// The subset of [keys] that an unscoped logout may clear.
+  static Set<String> keysToClearOnLogout(
+    Set<String> keys,
+    List<String> preservedPrefixes,
+  ) {
+    if (preservedPrefixes.isEmpty) {
+      return keys;
+    }
+    return keys
+        .where((key) => !preservedPrefixes.any(key.startsWith))
+        .toSet();
+  }
+
   String get scope => _scope;
 
   /// Namespaces an account-scoped key with the active scope.
@@ -118,13 +139,21 @@ abstract class BaseConfiguration {
 
   /// Clears the logged out account's preferences.
   ///
-  /// Without a scope this wipes everything, which is what single-account apps
-  /// have always done. With a scope we must only touch that account's keys, so
+  /// Without a scope this wipes everything — except any key protected by
+  /// [logoutPreservedKeyPrefixes] — which is what single-account apps have
+  /// always done. With a scope we must only touch that account's keys, so
   /// that other profiles — and app wide preferences such as theme, locale and
   /// lock screen settings — survive the logout.
   Future<void> _clearPreferences() async {
     if (_scope.isEmpty) {
-      await _preferences.clear();
+      final preserved = logoutPreservedKeyPrefixes;
+      if (preserved.isEmpty) {
+        await _preferences.clear();
+        return;
+      }
+      for (final key in keysToClearOnLogout(_preferences.getKeys(), preserved)) {
+        await _preferences.remove(key);
+      }
       return;
     }
     final scopedKeys = _preferences

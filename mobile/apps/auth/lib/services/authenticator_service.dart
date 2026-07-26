@@ -40,6 +40,8 @@ class AuthenticatorService {
   String get _lastEntitySyncTime => _config.scopedKey("lastEntitySyncTime");
   Future<bool>? _onlineSyncInFlight;
   bool _onlineSyncRerunRequested = false;
+  bool _syncSuspended = false;
+  bool _syncRequestedWhileSuspended = false;
   StreamSubscription<SignedInEvent>? _signedInSubscription;
 
   AuthenticatorService._privateConstructor();
@@ -166,15 +168,32 @@ class AuthenticatorService {
     }
   }
 
-  /// Waits for any sync already underway to settle.
+  /// Blocks new syncs and waits for the one already underway to settle.
   ///
-  /// Callers switching profiles must await this, so that a sync started for
-  /// the outgoing account cannot write into the incoming account's database.
-  Future<void> waitForPendingSync() async {
+  /// Callers switching profiles wrap the switch in [suspendSync]/[resumeSync],
+  /// so that no sync — running or newly requested — can write the outgoing
+  /// account's entities into the incoming account's database. A sync requested
+  /// while suspended runs on resume, pointed at whatever profile is active by
+  /// then.
+  Future<void> suspendSync() async {
+    _syncSuspended = true;
+    _syncRequestedWhileSuspended = false;
     await _onlineSyncInFlight;
   }
 
+  void resumeSync() {
+    _syncSuspended = false;
+    if (_syncRequestedWhileSuspended) {
+      _syncRequestedWhileSuspended = false;
+      unawaited(onlineSync());
+    }
+  }
+
   Future<bool> onlineSync() {
+    if (_syncSuspended) {
+      _syncRequestedWhileSuspended = true;
+      return Future.value(false);
+    }
     final inFlightSync = _onlineSyncInFlight;
     if (inFlightSync != null) {
       _onlineSyncRerunRequested = true;

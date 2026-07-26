@@ -10,3 +10,5 @@ CLAUDE.local.md
 
 # Node
 node_modules/
+
+deploy-ente-auth.sh

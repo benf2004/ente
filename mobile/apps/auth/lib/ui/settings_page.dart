@@ -52,6 +52,18 @@ String? settingsSubtitle({
   return hasLoggedIn ? email : null;
 }
 
+/// Whether the Account row (and the switcher behind it) should be shown.
+///
+/// Any registered profile is enough — in particular a single offline vault,
+/// which is not logged in but still needs the switcher to add or reach other
+/// vaults; without this row an offline-only user could never add an account.
+bool showAccountSection({
+  required bool hasLoggedIn,
+  required int profileCount,
+}) {
+  return hasLoggedIn || profileCount > 0;
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -90,11 +102,10 @@ class SettingsPage extends StatelessWidget {
   }) {
     final l10n = context.l10n;
     final contents = <Widget>[];
-    // Also shown for an offline vault once more than one profile exists:
-    // the account switcher lives behind this row, and without it there is no
-    // way back off a vault that is not signed in.
-    final showAccount =
-        hasLoggedIn || ProfileService.instance.hasMultipleProfiles;
+    final showAccount = showAccountSection(
+      hasLoggedIn: hasLoggedIn,
+      profileCount: ProfileService.instance.profiles.length,
+    );
     if (showAccount) {
       contents.add(
         AuthSettingsItem(
@@ -286,7 +297,6 @@ class SettingsPage extends StatelessWidget {
     // Captured up front: by the time the logout completes this page has been
     // torn down along with the drawer that hosted it.
     final navigator = Navigator.of(context, rootNavigator: true);
-    final hasOtherProfiles = ProfileService.instance.hasMultipleProfiles;
     return showChoiceActionSheet(
       context,
       title: l10n.logout,
@@ -295,13 +305,16 @@ class SettingsPage extends StatelessWidget {
       secondButtonLabel: l10n.cancel,
       isCritical: true,
       firstButtonOnTap: () async {
-        await UserService.instance.logout(context);
-        if (!hasOtherProfiles) return;
-        // Drop the profile we just logged out of and fall back to the next
-        // one, rather than leaving the user on the sign in screen.
-        if (await ProfileService.instance.removeActive()) {
-          unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
-        }
+        // Navigation is ours: only after the profile record is gone do we know
+        // whether to land on the next profile's home or on onboarding — and
+        // the '/' route works that out from the configuration by itself. A
+        // thrown logout (server error) skips the removal, as it should.
+        await UserService.instance.logout(context, navigate: false);
+        // Always remove, even for the last profile: the record must not
+        // outlive the account's data, or it shows up as a vault that can
+        // never be opened.
+        await ProfileService.instance.removeActive();
+        unawaited(navigator.pushNamedAndRemoveUntil('/', (route) => false));
       },
     );
   }
