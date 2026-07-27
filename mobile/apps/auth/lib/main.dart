@@ -125,10 +125,18 @@ Future<void> _runInForeground() async {
       AppLock(
         builder: (args) => App(locale: locale, savedThemeMode: savedThemeMode),
         debugShowCheckedModeBanner: false,
-        // Without this the too many attempts sign out would clear the account
-        // but leave its profile registered, stranding the surviving vault.
+        // Without these the lock screen's sign outs would clear the account
+        // but leave its profile registered, stranding the surviving vault and
+        // leaving the cleared scope's database files behind for good.
+        //
+        // navigate: false because '/' is not a route in the app lock's own
+        // navigator. The lock screen restarts the app after a sign out the
+        // user asked for, and unlocking rebuilds it after an automatic one, so
+        // either way it lands on the surviving profile on its own.
         lockScreen: LockScreen(
           configuration,
+          onLogout: (context) => completeLogout(context, navigate: false),
+          // The session is already gone by the time attempts run out.
           onAutoLogout: (context) =>
               completeLogout(context, serverSideLogout: false, navigate: false),
         ),

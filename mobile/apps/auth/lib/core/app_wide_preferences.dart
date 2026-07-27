@@ -34,6 +34,8 @@ const kAppWidePreferenceKeys = <String>[
   // account.
   UpdateService.kUpdateAvailableShownTimeKey,
   kIsWindowMaximizedKey,
+  kWindowWidthKey,
+  kWindowHeightKey,
   // Local backup destination and schedule. The backup password
   // (Configuration.autoBackupPasswordKey) and the last backup day
   // (kLastBackupDayKey) are account scoped and deliberately not here: each
@@ -49,6 +51,8 @@ const kAppWidePreferenceKeys = <String>[
 const localePreferenceKey = 'locale';
 
 const kIsWindowMaximizedKey = 'is_maximized';
+const kWindowWidthKey = 'windowWidth';
+const kWindowHeightKey = 'windowHeight';
 
 const kAutoBackupEnabledKey = 'isAutoBackupEnabled';
 const kAutoBackupPathKey = 'autoBackupPath';

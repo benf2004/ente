@@ -60,6 +60,15 @@ bool showAccountSection({
   return hasLoggedIn || profileCount > 0;
 }
 
+// Signing out is the only way off an online profile whose token is gone: it is
+// not offline, so the account page offers no "remove vault", and with no
+// account left there is nothing to delete either. Gating this row on
+// hasConfiguredAccount() alone would strand such a profile in the switcher
+// with no way to get rid of it.
+bool showLogoutRow({required bool hasLoggedIn, required Profile? profile}) {
+  return hasLoggedIn || (profile != null && !profile.isOffline);
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -193,7 +202,10 @@ class SettingsPage extends StatelessWidget {
       ),
     ]);
 
-    if (hasLoggedIn) {
+    if (showLogoutRow(
+      hasLoggedIn: hasLoggedIn,
+      profile: ProfileService.instance.activeProfile,
+    )) {
       contents.addAll([
         const SizedBox(height: Spacing.sm),
         AuthSettingsItem(
@@ -306,7 +318,12 @@ class SettingsPage extends StatelessWidget {
       firstButtonLabel: l10n.yesLogout,
       secondButtonLabel: l10n.cancel,
       isCritical: true,
-      firstButtonOnTap: () => completeLogout(context),
+      // Without a token there is no session left to end and the request would
+      // only fail, so such a profile is cleared locally instead.
+      firstButtonOnTap: () => completeLogout(
+        context,
+        serverSideLogout: Configuration.instance.isLoggedIn(),
+      ),
     );
   }
 }

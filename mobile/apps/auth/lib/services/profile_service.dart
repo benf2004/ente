@@ -11,7 +11,7 @@ import 'package:ente_auth/services/billing_service.dart';
 import 'package:ente_auth/services/local_backup_service.dart';
 import 'package:ente_auth/store/authenticator_db.dart';
 import 'package:ente_auth/store/offline_authenticator_db.dart';
-import 'package:ente_auth/utils/directory_utils.dart';
+import 'package:ente_auth/store/scoped_database.dart';
 import 'package:ente_configuration/base_configuration.dart';
 import 'package:ente_events/event_bus.dart';
 import 'package:ente_events/models/signed_in_event.dart';
@@ -20,8 +20,6 @@ import 'package:ente_lock_screen/lock_screen_settings.dart';
 import 'package:ente_network/network.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // The profile list is app wide state, so it is stored under unprefixed keys.
@@ -44,6 +42,10 @@ class ProfileService {
   String _activeScope = "";
 
   String? _pendingAddReturnScope;
+  // The scope beginAdd() is still tracking. Only that scope may be committed
+  // or handed back; anything else is a late second call for an add that has
+  // already been resolved.
+  String? _pendingAddScope;
   StreamSubscription<SignedInEvent>? _pendingAddSubscription;
   StreamSubscription<SignedInEvent>? _signedInSubscription;
   StreamSubscription<UserDetailsChangedEvent>? _userDetailsSubscription;
@@ -92,7 +94,7 @@ class ProfileService {
           .map((e) => Profile.fromMap(json.decode(e) as Map<String, dynamic>))
           .toList();
       _activeScope = _prefs.getString(_activeScopeKey) ?? "";
-      if (_profiles.isEmpty && _hasLegacyAccountData()) {
+      if (_profiles.isEmpty && _scopeHasAccountData("")) {
         _logger.warning("Unregistered legacy account found, re-seeding");
         await _seedFromLegacyState();
       }
@@ -125,14 +127,18 @@ class ProfileService {
     );
   }
 
-  // Matches reconcile()'s notion of an account that still has data. The
-  // encrypted token counts: an account waiting on password re-entry has one
-  // but no token yet, and seeding it as nothing would hide the account row
-  // (and with it the switcher) for good.
-  bool _hasLegacyAccountData() {
-    return _prefs.containsKey(BaseConfiguration.tokenKey) ||
-        _prefs.containsKey(BaseConfiguration.encryptedTokenKey) ||
-        (_prefs.getBool(Configuration.hasOptedForOfflineModeKey) ?? false);
+  // Whether [scope] still owns an account that can be opened; the legacy
+  // profile passes the empty scope. The encrypted token counts: an account
+  // waiting on password re-entry has one but no token yet, and reading it as
+  // nothing would hide the account row (and with it the switcher) for good.
+  //
+  // Seeding and reconciliation share this so that they cannot disagree about
+  // what counts, which would let one resurrect a profile the other drops.
+  bool _scopeHasAccountData(String scope) {
+    return _prefs.containsKey("$scope${BaseConfiguration.tokenKey}") ||
+        _prefs.containsKey("$scope${BaseConfiguration.encryptedTokenKey}") ||
+        (_prefs.getBool("$scope${Configuration.hasOptedForOfflineModeKey}") ??
+            false);
   }
 
   // Drops records for vaults that have no data left to open. Every logout the
@@ -140,15 +146,11 @@ class ProfileService {
   // itself; this is the backstop for a path that clears an account without
   // knowing about profiles, so that such a record cannot outlive a restart.
   Future<void> reconcile() async {
-    bool hasAccountData(Profile profile) {
-      final scope = profile.scope;
-      return _prefs.containsKey("$scope${BaseConfiguration.tokenKey}") ||
-          _prefs.containsKey("$scope${BaseConfiguration.encryptedTokenKey}") ||
-          (_prefs.getBool("$scope${Configuration.hasOptedForOfflineModeKey}") ??
-              false);
-    }
+    bool hasAccountData(Profile profile) => _scopeHasAccountData(profile.scope);
 
-    final dead = _profiles.where((p) => !hasAccountData(p)).toList();
+    final dead = _profiles
+        .where((profile) => !hasAccountData(profile))
+        .toList();
     if (dead.isEmpty) {
       return;
     }
@@ -189,14 +191,10 @@ class ProfileService {
     final existing = _profiles
         .where((profile) => profile.scope == scope)
         .firstOrNull;
+    final kind = isOnline ? ProfileKind.online : ProfileKind.offline;
     await upsert(
-      Profile(
-        scope: scope,
-        kind: isOnline ? ProfileKind.online : ProfileKind.offline,
-        userID: userID ?? existing?.userID,
-        email: email ?? existing?.email,
-        label: existing?.label,
-      ),
+      existing?.copyWith(kind: kind, userID: userID, email: email) ??
+          Profile(scope: scope, kind: kind, userID: userID, email: email),
     );
   }
 
@@ -260,13 +258,9 @@ class ProfileService {
     }
     final trimmed = label.trim();
     final updated = [..._profiles];
-    final existing = updated[index];
-    updated[index] = Profile(
-      scope: existing.scope,
-      kind: existing.kind,
-      userID: existing.userID,
-      email: existing.email,
-      label: trimmed.isEmpty ? null : trimmed,
+    updated[index] = updated[index].copyWith(
+      label: trimmed,
+      clearLabel: trimmed.isEmpty,
     );
     _profiles = updated;
     await _persist();
@@ -345,6 +339,7 @@ class ProfileService {
     final scope = await _allocateScope();
     _logger.info("Beginning add of a profile at '$scope'");
     _pendingAddReturnScope = _activeScope;
+    _pendingAddScope = scope;
     // Undone on failure for the same reason as in switchTo(): a half applied
     // scope leaves the registry naming one profile while the databases are
     // open on another, and nothing here has been registered to abort against.
@@ -357,6 +352,7 @@ class ProfileService {
         s,
       );
       _pendingAddReturnScope = null;
+      _pendingAddScope = null;
       try {
         await _applyScope(_activeScope);
       } catch (e2, s2) {
@@ -384,6 +380,16 @@ class ProfileService {
   // the duplicate check against a registry that does not hold the scope yet,
   // which would abort the account just added.
   Future<Profile?> commitAdd(String scope) {
+    // Only an add still being tracked, or one already registered, may commit.
+    // A late call for a scope that was handed back is neither, and letting it
+    // through would re-run the duplicate check below: the configuration points
+    // at the restored profile by then, so the check would match that profile
+    // against itself and end its live session.
+    final isRegistered = _profiles.any((profile) => profile.scope == scope);
+    if (_pendingAddScope != scope && !isRegistered) {
+      _logger.info("Ignoring commit of '$scope', which is no longer pending");
+      return Future.value(null);
+    }
     return _commitInFlight ??= _commitAdd(
       scope,
     ).whenComplete(() => _commitInFlight = null);
@@ -397,6 +403,7 @@ class ProfileService {
     // call must not re-run the duplicate check against the profile just added.
     if (_profiles.any((profile) => profile.scope == scope)) {
       _pendingAddReturnScope = null;
+      _pendingAddScope = null;
       if (_activeScope != scope) {
         _activeScope = scope;
         await _persist();
@@ -425,6 +432,7 @@ class ProfileService {
       ),
     );
     _pendingAddReturnScope = null;
+    _pendingAddScope = null;
     _activeScope = scope;
     await _persist();
     return null;
@@ -441,11 +449,21 @@ class ProfileService {
   }
 
   Future<void> abortAdd(String scope) async {
+    // Only the add still being tracked may be handed back. Aborting one that
+    // was already resolved would fall through to the empty scope below and
+    // drop the user onto a legacy profile that need not even exist.
+    if (_pendingAddScope != scope) {
+      _logger.info("Ignoring abort of '$scope', which is no longer pending");
+      return;
+    }
     _logger.info("Aborting add of '$scope'");
     await _pendingAddSubscription?.cancel();
     _pendingAddSubscription = null;
-    final returnScope = _pendingAddReturnScope ?? "";
+    // The active scope is only advanced once an add commits, so while one is
+    // pending it still names the profile to go back to.
+    final returnScope = _pendingAddReturnScope ?? _activeScope;
     _pendingAddReturnScope = null;
+    _pendingAddScope = null;
     _profiles = _profiles.where((profile) => profile.scope != scope).toList();
     _activeScope = returnScope;
     await _persist();
@@ -555,15 +573,7 @@ class ProfileService {
     ];
     for (final name in names) {
       try {
-        final String path;
-        if (Platform.isWindows || Platform.isLinux) {
-          path = await DirectoryUtils.getDatabasePath(name);
-        } else {
-          final directory = Platform.isMacOS
-              ? await getApplicationSupportDirectory()
-              : await getApplicationDocumentsDirectory();
-          path = p.join(directory.path, name);
-        }
+        final String path = await databasePathForName(name);
         for (final suffix in const ["", "-wal", "-shm"]) {
           final file = File("$path$suffix");
           if (await file.exists()) {

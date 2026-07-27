@@ -34,9 +34,9 @@ class WindowListenerService with WindowListener, TrayListener {
 
   Size getWindowSize() {
     final double windowWidth =
-        _preferences.getDouble('windowWidth') ?? initialWindowWidth;
+        _preferences.getDouble(kWindowWidthKey) ?? initialWindowWidth;
     final double windowHeight =
-        _preferences.getDouble('windowHeight') ?? initialWindowHeight;
+        _preferences.getDouble(kWindowHeightKey) ?? initialWindowHeight;
     final w = windowWidth.clamp(200.0, maxWindowWidth);
     final h = windowHeight.clamp(400.0, maxWindowHeight);
     return Size(w, h);
@@ -54,8 +54,8 @@ class WindowListenerService with WindowListener, TrayListener {
   Future<void> _saveWindowSize() async {
     final width = (await windowManager.getSize()).width;
     final height = (await windowManager.getSize()).height;
-    await _preferences.setDouble('windowWidth', width);
-    await _preferences.setDouble('windowHeight', height);
+    await _preferences.setDouble(kWindowWidthKey, width);
+    await _preferences.setDouble(kWindowHeightKey, height);
   }
 
   @override

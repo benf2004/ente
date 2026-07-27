@@ -20,6 +20,25 @@ class Profile {
 
   bool get isOffline => kind == ProfileKind.offline;
 
+  // [scope] identifies the profile, so it is never copied over. Pass
+  // [clearLabel] to drop a name rather than keep the existing one, which a
+  // null [label] cannot express.
+  Profile copyWith({
+    ProfileKind? kind,
+    int? userID,
+    String? email,
+    String? label,
+    bool clearLabel = false,
+  }) {
+    return Profile(
+      scope: scope,
+      kind: kind ?? this.kind,
+      userID: userID ?? this.userID,
+      email: email ?? this.email,
+      label: clearLabel ? null : (label ?? this.label),
+    );
+  }
+
   // [offlineFallback] is passed in so this stays free of l10n.
   String displayName(String offlineFallback) {
     final named = label?.trim();

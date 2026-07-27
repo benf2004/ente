@@ -60,6 +60,7 @@ class LocalBackupService {
   static const _iosBookmarkKey = kAutoBackupIosBookmarkKey;
 
   StreamSubscription<SignedOutEvent>? _signedOutSubscription;
+  bool _hasCheckedFreshInstall = false;
 
   // Safe to call again when the active profile changes; the listener is only
   // registered once, so switching cannot stack up duplicates.
@@ -75,9 +76,19 @@ class LocalBackupService {
 
   /// Clear backup password on fresh install (like lock screen does).
   /// Only clears if not logged in and not in offline mode.
+  ///
+  /// Startup only. init() runs again on every profile switch, and an account
+  /// that is registered but holds no token yet — one waiting on password
+  /// re-entry — is indistinguishable from a fresh install by these two
+  /// checks, so running it per switch would delete that vault's backup
+  /// password just for switching to it.
   Future<void> _clearBackupPasswordIfFreshInstall(
     bool hasOptedForOfflineMode,
   ) async {
+    if (_hasCheckedFreshInstall) {
+      return;
+    }
+    _hasCheckedFreshInstall = true;
     if (!Configuration.instance.isLoggedIn() && !hasOptedForOfflineMode) {
       await _clearBackupPassword();
     }

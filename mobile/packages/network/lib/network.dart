@@ -17,19 +17,21 @@ class Network {
   late Dio _enteDio;
   bool _initialized = false;
   BaseConfiguration? _configuration;
-  bool _endpointListenerRegistered = false;
+  String? _userAgent;
+  String? _version;
+  String? _packageName;
 
-  // Safe to call again when the active account changes. The Dio instances are
-  // created once and mutated in place, since many services capture them in
-  // final fields at construction.
-  Future<void> init(BaseConfiguration configuration) async {
-    final bool isMobile = Platform.isAndroid || Platform.isIOS;
-    String? ua;
-    if (isMobile) {
-      ua = await userAgent();
+  // Fixed for the lifetime of the process, and each lookup is a platform
+  // channel round trip, so they are resolved once rather than on every
+  // account switch.
+  Future<void> _resolveClientIdentity() async {
+    if (_version != null) {
+      return;
+    }
+    if (Platform.isAndroid || Platform.isIOS) {
+      _userAgent = await userAgent();
     }
     final packageInfo = await PackageInfo.fromPlatform();
-    final version = packageInfo.version;
     String packageName = packageInfo.packageName;
 
     // Fix package name for auth app on Windows/Linux only
@@ -41,6 +43,19 @@ class Network {
         packageName = 'io.ente.auth';
       }
     }
+    _packageName = packageName;
+    _version = packageInfo.version;
+  }
+
+  // Safe to call again when the active account changes. The Dio instances are
+  // created once and mutated in place, since many services capture them in
+  // final fields at construction.
+  Future<void> init(BaseConfiguration configuration) async {
+    final bool isMobile = Platform.isAndroid || Platform.isIOS;
+    await _resolveClientIdentity();
+    final String? ua = _userAgent;
+    final String version = _version!;
+    final String packageName = _packageName!;
 
     // Validate package name for production endpoint
     // This ensures we catch any edge cases where the package name is still incorrect
@@ -90,23 +105,20 @@ class Network {
 
       _dio.httpClientAdapter = NativeAdapter();
       _enteDio.httpClientAdapter = NativeAdapter();
-    } else {
-      _enteDio.options.baseUrl = endpoint;
-    }
 
-    _setupInterceptors(configuration);
-
-    // Registered once and left for the lifetime of the process, so switching
-    // accounts cannot stack up duplicate listeners.
-    if (!_endpointListenerRegistered) {
-      _endpointListenerRegistered = true;
+      // Registered alongside the Dio instances it mutates, so switching
+      // accounts cannot stack up duplicate listeners.
       Bus.instance.on<EndpointUpdatedEvent>().listen((event) {
         final config = _configuration;
         if (config == null) return;
         _enteDio.options.baseUrl = config.getHttpEndpoint();
         _setupInterceptors(config);
       });
+    } else {
+      _enteDio.options.baseUrl = endpoint;
     }
+
+    _setupInterceptors(configuration);
   }
 
   Network._privateConstructor();

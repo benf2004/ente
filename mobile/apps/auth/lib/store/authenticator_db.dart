@@ -3,15 +3,13 @@ import 'dart:io';
 
 import 'package:ente_auth/models/authenticator/auth_entity.dart';
 import 'package:ente_auth/models/authenticator/local_auth_entity.dart';
-import 'package:ente_auth/utils/directory_utils.dart';
+import 'package:ente_auth/store/scoped_database.dart';
 import 'package:ente_base/ente_base.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-class AuthenticatorDB extends EnteBaseDatabase {
+class AuthenticatorDB extends EnteBaseDatabase with ScopedDatabase {
   static const _databaseVersion = 1;
 
   static const entityTable = 'entities';
@@ -19,50 +17,27 @@ class AuthenticatorDB extends EnteBaseDatabase {
   AuthenticatorDB._privateConstructor();
   static final AuthenticatorDB instance = AuthenticatorDB._privateConstructor();
 
-  static Future<Database>? _dbFuture;
-  static String _scope = "";
-
   // The empty scope keeps the original name, so existing installs open the
   // file they always have.
   static String databaseNameForScope(String scope) =>
       "ente.${scope}authenticator.db";
 
-  // Closes the open database, so the next access reopens the new scope's file.
-  Future<void> setScope(String scope) async {
-    if (_scope == scope) return;
-    await close();
-    _scope = scope;
-  }
+  @override
+  String databaseNameFor(String scope) => databaseNameForScope(scope);
 
-  Future<void> close() async {
-    final dbFuture = _dbFuture;
-    _dbFuture = null;
-    if (dbFuture != null) {
-      await (await dbFuture).close();
-    }
-  }
-
-  Future<Database> get database async {
-    _dbFuture ??= _initDatabase();
-    return _dbFuture!;
-  }
-
-  Future<Database> _initDatabase() async {
-    final String databaseName = databaseNameForScope(_scope);
+  @override
+  Future<Database> openDatabaseNamed(String databaseName) async {
+    final String path = await databasePathForName(databaseName);
     if (Platform.isWindows || Platform.isLinux) {
       var databaseFactory = databaseFactoryFfi;
       return await databaseFactory.openDatabase(
-        await DirectoryUtils.getDatabasePath(databaseName),
+        path,
         options: OpenDatabaseOptions(
           version: _databaseVersion,
           onCreate: _onCreate,
         ),
       );
     }
-    final Directory documentsDirectory = Platform.isMacOS
-        ? await getApplicationSupportDirectory()
-        : await getApplicationDocumentsDirectory();
-    final String path = join(documentsDirectory.path, databaseName);
     debugPrint(path);
     return await openDatabase(
       path,
