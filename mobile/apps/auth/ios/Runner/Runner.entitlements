@@ -12,5 +12,20 @@
 		<string>webcredentials:auth.ente.com</string>
 		<string>webcredentials:locker.ente.com</string>
 	</array>
+	<key>com.apple.developer.authentication-services.autofill-credential-provider</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.ente.auth</string>
+	</array>
+	<!-- Must stay the first (and ideally only) entry. VaultStore omits
+	     kSecAttrAccessGroup so that the app and the AutoFill extension both
+	     default to this group; it is also the group Runner already used before
+	     this entitlement existed, so flutter_secure_storage items are
+	     unaffected. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.ente.auth</string>
+	</array>
 </dict>
 </plist>

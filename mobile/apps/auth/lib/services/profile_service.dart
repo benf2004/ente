@@ -7,6 +7,7 @@ import 'package:ente_accounts/services/user_service.dart';
 import 'package:ente_auth/core/configuration.dart';
 import 'package:ente_auth/models/profile.dart';
 import 'package:ente_auth/services/authenticator_service.dart';
+import 'package:ente_auth/services/autofill_service.dart';
 import 'package:ente_auth/services/billing_service.dart';
 import 'package:ente_auth/services/local_backup_service.dart';
 import 'package:ente_auth/store/authenticator_db.dart';
@@ -326,6 +327,11 @@ class ProfileService {
     } finally {
       AuthenticatorService.instance.resumeSync();
     }
+    // Only the active profile is published to AutoFill, so the snapshot has to
+    // follow the switch. Not left to CodesUpdatedEvent: nothing guarantees a
+    // sync fires after a switch, and until this runs iOS would keep offering
+    // the previous profile's codes.
+    await AutoFillService.instance.refresh();
   }
 
   // Returns the scope the sign in flow should run against. The caller must
@@ -548,6 +554,9 @@ class ProfileService {
     _logger.info("Dropping '$scope' after a sign out taken outside the app");
     _profiles = _profiles.where((profile) => profile.scope != scope).toList();
     await _persist();
+    // This path does not go through _applyScope, and the account's codes are
+    // already gone, so the snapshot would otherwise outlive them.
+    await AutoFillService.instance.refresh();
   }
 
   // Scopes that own data on disk but no profile record. reconcile() covers the

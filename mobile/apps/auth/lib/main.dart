@@ -11,6 +11,7 @@ import 'package:ente_auth/l10n/l10n.dart';
 import 'package:ente_auth/locale.dart';
 import 'package:ente_auth/services/auth_theme_preferences.dart';
 import 'package:ente_auth/services/authenticator_service.dart';
+import 'package:ente_auth/services/autofill_service.dart';
 import 'package:ente_auth/services/billing_service.dart';
 import 'package:ente_auth/services/local_backup_service.dart';
 import 'package:ente_auth/services/notification_service.dart';
@@ -237,4 +238,6 @@ Future<void> _init(bool bool, {String? via}) async {
   await LocalBackupService.instance.init(
     hasOptedForOfflineMode: Configuration.instance.hasOptedForOfflineMode(),
   );
+  // Last: it reads the codes every other service has just been pointed at.
+  await AutoFillService.instance.init();
 }

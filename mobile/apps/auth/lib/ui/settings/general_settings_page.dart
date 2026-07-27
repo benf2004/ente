@@ -4,6 +4,7 @@ import 'package:ente_auth/app/view/app.dart';
 import 'package:ente_auth/events/icons_changed_event.dart';
 import 'package:ente_auth/l10n/l10n.dart';
 import 'package:ente_auth/locale.dart';
+import 'package:ente_auth/services/autofill_service.dart';
 import 'package:ente_auth/services/preference_service.dart';
 import 'package:ente_auth/ui/settings/app_icon_selection_screen.dart';
 import 'package:ente_auth/ui/settings/components/auth_settings_item.dart';
@@ -18,8 +19,39 @@ import 'package:ente_pure_utils/ente_pure_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 
-class GeneralSettingsPage extends StatelessWidget {
+class GeneralSettingsPage extends StatefulWidget {
   const GeneralSettingsPage({super.key});
+
+  @override
+  State<GeneralSettingsPage> createState() => _GeneralSettingsPageState();
+}
+
+class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
+  /// Null until the platform answers. The row stays hidden below iOS 18,
+  /// where third-party providers cannot serve one-time codes at all.
+  bool _isAutoFillSupported = false;
+
+  /// Whether Ente is switched on under Settings → General → AutoFill &
+  /// Passwords. Turning the toggle on here does nothing visible until it is.
+  bool _isAutoFillEnabledInSystemSettings = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAutoFillState();
+  }
+
+  Future<void> _loadAutoFillState() async {
+    final supported = await AutoFillService.instance.isSupported();
+    final enabledInSettings = supported
+        ? await AutoFillService.instance.isEnabledInSystemSettings()
+        : false;
+    if (!mounted) return;
+    setState(() {
+      _isAutoFillSupported = supported;
+      _isAutoFillEnabledInSystemSettings = enabledInSettings;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +134,22 @@ class GeneralSettingsPage extends StatelessWidget {
                       !PreferenceService.instance.shouldMinimizeToTrayOnClose(),
                     ),
               ),
+            if (_isAutoFillSupported)
+              _toggleItem(
+                title: l10n.autoFill,
+                subtitle:
+                    PreferenceService.instance.isAutoFillEnabled() &&
+                        !_isAutoFillEnabledInSystemSettings
+                    ? l10n.autoFillNotEnabledInSystemSettings
+                    : null,
+                value: PreferenceService.instance.isAutoFillEnabled,
+                onChanged: () async {
+                  await AutoFillService.instance.setEnabled(
+                    !PreferenceService.instance.isAutoFillEnabled(),
+                  );
+                  await _loadAutoFillState();
+                },
+              ),
             _toggleItem(
               title: l10n.crashAndErrorReporting,
               value: SuperLogging.shouldReportErrors,
@@ -119,9 +167,11 @@ class GeneralSettingsPage extends StatelessWidget {
     required String title,
     required ValueGetter<bool> value,
     required Future<void> Function() onChanged,
+    String? subtitle,
   }) {
     return AuthSettingsItem(
       title: title,
+      subtitle: subtitle,
       showChevron: false,
       trailing: ToggleSwitchComponent.async(value: value, onChanged: onChanged),
     );

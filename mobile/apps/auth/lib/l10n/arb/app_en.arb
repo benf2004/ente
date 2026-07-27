@@ -51,6 +51,31 @@
   "secret": "Secret",
   "all": "All",
   "notes": "Notes",
+  "websites": "Websites",
+  "@websites": {
+    "description": "Label for the field listing the websites a code is used on, so that AutoFill can offer it there"
+  },
+  "websitesHint": "github.com, example.com",
+  "@websitesHint": {
+    "description": "Placeholder showing that websites are entered as a comma separated list of domains"
+  },
+  "invalidWebsites": "Not a valid website: {websites}",
+  "@invalidWebsites": {
+    "description": "Shown when the websites field contains an entry that is not a domain",
+    "placeholders": {
+      "websites": {
+        "type": "String"
+      }
+    }
+  },
+  "autoFill": "AutoFill",
+  "@autoFill": {
+    "description": "Setting that lets iOS offer this app's codes when a login form asks for a one-time code"
+  },
+  "autoFillNotEnabledInSystemSettings": "Enable Ente Auth in Settings → General → AutoFill & Passwords",
+  "@autoFillNotEnabledInSystemSettings": {
+    "description": "Shown under the AutoFill setting when the user has turned it on in the app but not yet in iOS Settings"
+  },
   "notesLengthLimit": "Notes can be at most {count} characters long",
   "@notesLengthLimit": {
     "description": "Text to indicate the maximum number of characters allowed for notes",

@@ -15,6 +15,11 @@ class CodeDisplay {
   String iconSrc;
   String iconID;
 
+  /// Websites this code is used on, for iOS AutoFill to match against. A code
+  /// carries an issuer rather than a domain, so this is the only reliable way
+  /// to know that "GitHub" belongs on github.com.
+  final List<String> websites;
+
   CodeDisplay({
     this.pinned = false,
     this.trashed = false,
@@ -25,6 +30,7 @@ class CodeDisplay {
     this.position = 0,
     this.iconSrc = '',
     this.iconID = '',
+    this.websites = const [],
   });
 
   bool get isCustomIcon => (iconSrc != '' && iconID != '');
@@ -40,6 +46,7 @@ class CodeDisplay {
     int? position,
     String? iconSrc,
     String? iconID,
+    List<String>? websites,
   }) {
     final bool updatedPinned = pinned ?? this.pinned;
     final bool updatedTrashed = trashed ?? this.trashed;
@@ -50,6 +57,7 @@ class CodeDisplay {
     final int updatedPosition = position ?? this.position;
     final String updatedIconSrc = iconSrc ?? this.iconSrc;
     final String updatedIconID = iconID ?? this.iconID;
+    final List<String> updatedWebsites = websites ?? this.websites;
 
     return CodeDisplay(
       pinned: updatedPinned,
@@ -61,6 +69,7 @@ class CodeDisplay {
       position: updatedPosition,
       iconSrc: updatedIconSrc,
       iconID: updatedIconID,
+      websites: updatedWebsites,
     );
   }
 
@@ -78,6 +87,9 @@ class CodeDisplay {
       position: json['position'] ?? 0,
       iconSrc: json['iconSrc'] ?? 'ente',
       iconID: json['iconID'] ?? '',
+      // Absent on codes written before AutoFill existed, and on codes written
+      // by clients that do not know the field.
+      websites: List<String>.from(json['websites'] ?? []),
     );
   }
 
@@ -125,6 +137,7 @@ class CodeDisplay {
       'position': position,
       'iconSrc': iconSrc,
       'iconID': iconID,
+      'websites': websites,
     };
   }
 
@@ -138,7 +151,8 @@ class CodeDisplay {
         other.lastUsedAt == lastUsedAt &&
         other.tapCount == tapCount &&
         other.note == note &&
-        listEquals(other.tags, tags);
+        listEquals(other.tags, tags) &&
+        listEquals(other.websites, websites);
   }
 
   @override
@@ -148,6 +162,7 @@ class CodeDisplay {
         lastUsedAt.hashCode ^
         tapCount.hashCode ^
         note.hashCode ^
-        tags.hashCode;
+        tags.hashCode ^
+        websites.hashCode;
   }
 }

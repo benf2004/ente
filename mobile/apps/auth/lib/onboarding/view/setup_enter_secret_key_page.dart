@@ -12,6 +12,7 @@ import 'package:ente_auth/ui/components/models/button_result.dart';
 import 'package:ente_auth/ui/custom_icon_page.dart';
 import 'package:ente_auth/ui/settings/components/auth_settings_page_scaffold.dart';
 import 'package:ente_auth/ui/utils/icon_utils.dart';
+import 'package:ente_auth/utils/autofill_domain_util.dart';
 import 'package:ente_auth/utils/dialog_util.dart';
 import 'package:ente_auth/utils/toast_util.dart';
 import 'package:ente_auth/utils/totp_util.dart';
@@ -53,6 +54,7 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
   late TextEditingController _accountController;
   late TextEditingController _secretController;
   late TextEditingController _notesController;
+  late TextEditingController _websitesController;
   late TextEditingController _digitsController;
   late TextEditingController _periodController;
   late List<String> selectedTags = [...?widget.code?.display.tags];
@@ -78,6 +80,9 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
     );
     _secretController = TextEditingController(text: widget.code?.secret);
     _notesController = TextEditingController(text: widget.code?.display.note);
+    _websitesController = TextEditingController(
+      text: widget.code?.display.websites.join(", "),
+    );
     _digitsController = TextEditingController(
       text: widget.code != null
           ? widget.code!.digits.toString()
@@ -128,6 +133,7 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
     _accountController.dispose();
     _secretController.dispose();
     _notesController.dispose();
+    _websitesController.dispose();
     _digitsController.dispose();
     _periodController.dispose();
     showAdvancedOptions.dispose();
@@ -206,6 +212,20 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
                       label: l10n.account,
                       isClearable: true,
                       maxLength: _textLimit,
+                      textInputAction: TextInputAction.next,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.lg),
+                  Semantics(
+                    identifier: 'auth_manual_websites',
+                    child: TextInputComponent(
+                      controller: _websitesController,
+                      label: l10n.websites,
+                      hintText: l10n.websitesHint,
+                      isClearable: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      keyboardType: TextInputType.url,
                       textInputAction: TextInputAction.next,
                     ),
                   ),
@@ -520,6 +540,30 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
     await _saveCode();
   }
 
+  /// Normalises the comma separated websites field into bare hosts. Returns
+  /// null when the user typed something that cannot be one, having told them
+  /// which entry it was — dropping it silently would leave them believing
+  /// AutoFill is set up for a site it will never match.
+  List<String>? _parseWebsites() {
+    final websites = <String>[];
+    final rejected = <String>[];
+    for (final raw in _websitesController.text.split(RegExp(r'[,\s]+'))) {
+      final entry = raw.trim();
+      if (entry.isEmpty) continue;
+      final domain = normalizeDomain(entry);
+      if (domain == null) {
+        rejected.add(entry);
+      } else if (!websites.contains(domain)) {
+        websites.add(domain);
+      }
+    }
+    if (rejected.isNotEmpty) {
+      showToast(context, context.l10n.invalidWebsites(rejected.join(", ")));
+      return null;
+    }
+    return websites;
+  }
+
   Future<void> _saveCode() async {
     try {
       if (!mounted) return;
@@ -530,12 +574,18 @@ class _SetupEnterSecretKeyPageState extends State<SetupEnterSecretKeyPage> {
       final digits = int.tryParse(_digitsController.text.trim());
       final period = int.tryParse(_periodController.text.trim());
 
+      final websites = _parseWebsites();
+      if (websites == null) return;
+
       final isStreamCode =
           issuer.toLowerCase() == "steam" ||
           issuer.toLowerCase().contains('steampowered.com');
       final CodeDisplay display =
-          widget.code?.display.copyWith(tags: selectedTags) ??
-          CodeDisplay(tags: selectedTags);
+          widget.code?.display.copyWith(
+            tags: selectedTags,
+            websites: websites,
+          ) ??
+          CodeDisplay(tags: selectedTags, websites: websites);
       display.note = notes;
       if (widget.code != null) {
         if (widget.code!.display.iconID != _customIconID.toLowerCase()) {

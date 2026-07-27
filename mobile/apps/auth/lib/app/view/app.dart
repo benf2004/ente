@@ -8,6 +8,7 @@ import 'package:ente_auth/locale.dart';
 import 'package:ente_auth/onboarding/view/onboarding_page.dart';
 import 'package:ente_auth/services/auth_theme_preferences.dart';
 import 'package:ente_auth/services/authenticator_service.dart';
+import 'package:ente_auth/services/autofill_service.dart';
 import 'package:ente_auth/services/update_service.dart';
 import 'package:ente_auth/ui/home_page.dart';
 import 'package:ente_auth/ui/settings/app_update_dialog.dart';
@@ -119,6 +120,13 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       if (Configuration.instance.hasConfiguredAccount()) {
         AuthenticatorService.instance.onlineSync().ignore();
       }
+    }
+    if (state == AppLifecycleState.paused) {
+      // Leaving the app is the moment before AutoFill gets used, and it is the
+      // only reliable point at which to pick up an app lock the user just set
+      // or cleared — that setting fires no event of its own. Identical
+      // payloads are dropped, so this is usually just a database read.
+      AutoFillService.instance.refresh().ignore();
     }
   }
 

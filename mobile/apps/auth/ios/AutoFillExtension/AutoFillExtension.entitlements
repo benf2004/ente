@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.authentication-services.autofill-credential-provider</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.ente.auth</string>
+	</array>
+	<!-- Must stay the first (and ideally only) entry: VaultStore omits
+	     kSecAttrAccessGroup and relies on this being the default group, so
+	     that the extension and Runner resolve to the same one. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.ente.auth</string>
+	</array>
+</dict>
+</plist>

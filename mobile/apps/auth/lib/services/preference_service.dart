@@ -29,6 +29,7 @@ class PreferenceService {
   static const kCompactMode = "vi.compactMode";
   static const kAppInstallTime = "appInstallTime";
   static const kCodeSortKey = "codeSortKey";
+  static const kAutoFillEnabled = "autofill_enabled";
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -77,6 +78,17 @@ class PreferenceService {
 
   bool isCompactMode() {
     return _prefs.getBool(kCompactMode) ?? false;
+  }
+
+  // Opt in: turning this on copies TOTP secrets into a second store that the
+  // AutoFill extension can read, which should be the user's choice. App wide
+  // rather than per profile, since the extension is a device level setting.
+  bool isAutoFillEnabled() {
+    return _prefs.getBool(kAutoFillEnabled) ?? false;
+  }
+
+  Future<void> setAutoFillEnabled(bool value) async {
+    await _prefs.setBool(kAutoFillEnabled, value);
   }
 
   Future<void> setCompactMode(bool value) async {
