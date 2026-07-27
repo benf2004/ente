@@ -464,19 +464,19 @@ class ProfileService {
     final returnScope = _pendingAddReturnScope ?? _activeScope;
     _pendingAddReturnScope = null;
     _pendingAddScope = null;
+    // Re-point everything at the surviving profile first, as switchTo() does:
+    // persisting ahead of it would leave the stored scope naming a profile the
+    // services are not on, and erasing ahead of it would delete the data the
+    // app is still live on. A failure here leaves the aborted scope active but
+    // unregistered, which init() falls back from and the orphan sweep clears.
+    await _applyScope(returnScope);
     _profiles = _profiles.where((profile) => profile.scope != scope).toList();
     _activeScope = returnScope;
     await _persist();
-    // Re-point everything at the surviving profile before erasing. The
-    // databases are singletons, so deleting first leaves a window where a sync
-    // or a page load reopens the file that was just removed. Erasing happens
-    // even if that fails: the record is already gone, so nothing would ever
-    // come back for this scope's keys and database files.
-    try {
-      await _applyScope(returnScope);
-    } finally {
-      await discard(scope);
-    }
+    // Only now: the databases are singletons, so deleting first leaves a
+    // window where a sync or a page load reopens the file that was just
+    // removed.
+    await discard(scope);
   }
 
   // Returns false when that was the last profile, so the caller knows to send
@@ -500,8 +500,17 @@ class ProfileService {
         await OfflineAuthenticatorDB.instance.clearTable();
       }
     }
-    _profiles = _profiles.where((profile) => profile.scope != scope).toList();
-    _activeScope = _profiles.isEmpty ? "" : _profiles.first.scope;
+    final remaining = _profiles
+        .where((profile) => profile.scope != scope)
+        .toList();
+    final nextScope = remaining.isEmpty ? "" : remaining.first.scope;
+    // Re-point before touching the registry or erasing; see the note in
+    // abortAdd. A failure here leaves the profile registered and its data
+    // intact, which is recoverable, rather than erasing the scope the app is
+    // still running on.
+    await _applyScope(nextScope);
+    _profiles = remaining;
+    _activeScope = nextScope;
     await _persist();
     if (_profiles.isEmpty) {
       // The lock guards the app, so it only goes once nothing is left to
@@ -509,12 +518,7 @@ class ProfileService {
       // listener has already done this; the offline path has no such event.
       await LockScreenSettings.instance.clearAppLockOnSignOut();
     }
-    // Re-point before erasing; see the note in abortAdd.
-    try {
-      await _applyScope(_activeScope);
-    } finally {
-      await discard(scope);
-    }
+    await discard(scope);
     return _profiles.isNotEmpty;
   }
 
@@ -546,6 +550,36 @@ class ProfileService {
     await _persist();
   }
 
+  // Scopes that own data on disk but no profile record. reconcile() covers the
+  // opposite case only, so without this an add that never reached commitAdd —
+  // the app killed between the sign in and the registry write — leaves that
+  // account's token, keychain entries and encrypted codes on the device with
+  // nothing able to reach or remove them.
+  //
+  // Runs after Configuration.init(), which owns the secure storage discard()
+  // needs, and before any add can be pending, so every unregistered acct_
+  // scope found here is genuinely abandoned.
+  Future<void> sweepOrphanedScopes() async {
+    final registered = _profiles.map((profile) => profile.scope).toSet();
+    final orphans = _prefs
+        .getKeys()
+        .map((key) => _allocatedScopePattern.matchAsPrefix(key)?.group(0))
+        .whereType<String>()
+        .toSet()
+        .where((scope) => scope != _activeScope && !registered.contains(scope))
+        .toList();
+    if (orphans.isEmpty) {
+      return;
+    }
+    _logger.warning("Discarding ${orphans.length} orphaned scope(s): $orphans");
+    for (final scope in orphans) {
+      await discard(scope);
+    }
+  }
+
+  // Mirrors the shape _allocateScope() hands out.
+  static final _allocatedScopePattern = RegExp(r'acct_\d+\.');
+
   // Erases the preferences, keychain entries and database files [scope] owns.
   // Callers must already have made a different profile active.
   Future<void> discard(String scope) async {
@@ -554,9 +588,25 @@ class ProfileService {
       await _persist();
     }
     if (scope.isEmpty) {
-      // Its keys carry no prefix, so there is nothing safe to match on.
-      // Configuration.logout() already clears them wholesale.
-      _logger.info("Skipping key cleanup for the legacy scope");
+      // Its keys carry no prefix, so they cannot be matched on. Clear them by
+      // exclusion instead, exactly as Configuration.logout() does: an online
+      // profile has been through that already and this is a no-op, but the
+      // offline removal path never calls logout(), and leaving 'endpoint',
+      // 'lastBackupDay' and the sync cursor behind would hand them to whatever
+      // account lands on the legacy scope next.
+      _logger.info("Clearing the legacy scope's account owned keys");
+      final legacyKeys = BaseConfiguration.keysToClearOnLogout(
+        _prefs.getKeys(),
+        Configuration.instance.logoutPreservedKeyPrefixes,
+      );
+      for (final key in legacyKeys) {
+        await _prefs.remove(key);
+      }
+      // Its entities are not touched here: by the time discard() runs the
+      // databases have been re-pointed at the surviving profile, so clearing
+      // through the singletons would empty that profile's codes instead. The
+      // legacy tables are emptied before the switch, by Configuration.logout()
+      // for an online profile and by removeActive() for an offline one.
       return;
     }
     for (final key in _prefs.getKeys().where((key) => key.startsWith(scope))) {
@@ -567,6 +617,11 @@ class ProfileService {
   }
 
   Future<void> _deleteDatabases(String scope) async {
+    // A switch leaves the outgoing handle open on purpose (see ScopedDatabase),
+    // so release this scope's before unlinking its files, or the delete fails
+    // on Windows and elsewhere leaves the handle writing to an unlinked file.
+    await AuthenticatorDB.instance.closeScope(scope);
+    await OfflineAuthenticatorDB.instance.closeScope(scope);
     final names = [
       AuthenticatorDB.databaseNameForScope(scope),
       OfflineAuthenticatorDB.databaseNameForScope(scope),

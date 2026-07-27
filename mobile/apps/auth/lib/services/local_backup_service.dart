@@ -113,11 +113,14 @@ class LocalBackupService {
         return false;
       }
 
+      // Captured before the codes are read, so a profile switch part way
+      // through cannot file them under the incoming profile.
+      final scope = Configuration.instance.scope;
       final String? encryptedJson = await _buildEncryptedPayload(password);
       if (encryptedJson == null) return false;
 
       final now = DateTime.now();
-      final fileName = _buildFileName(now, isManual: isManual);
+      final fileName = _buildFileName(now, isManual: isManual, scope: scope);
       final writeSuccess = await _writeBackup(
         target: target,
         fileName: fileName,
@@ -125,7 +128,7 @@ class LocalBackupService {
       );
 
       if (writeSuccess && !isManual) {
-        await _recordBackupDay(prefs, now);
+        await _recordBackupDay(prefs, now, scope);
       }
       return writeSuccess;
     } catch (e, s) {
@@ -154,6 +157,8 @@ class LocalBackupService {
         return false;
       }
 
+      // Captured before the codes are read; see triggerAutomaticBackup.
+      final scope = Configuration.instance.scope;
       final String? encryptedJson = await _buildEncryptedPayload(password);
       if (encryptedJson == null) {
         _logger.warning('Backup skipped: no data to backup.');
@@ -161,7 +166,7 @@ class LocalBackupService {
       }
 
       final now = DateTime.now();
-      final fileName = _buildFileName(now, isManual: true);
+      final fileName = _buildFileName(now, isManual: true, scope: scope);
       final filePath = '$directoryPath/$fileName';
 
       final backupFile = File(filePath);
@@ -170,7 +175,7 @@ class LocalBackupService {
       await _manageOldBackups(directoryPath);
 
       final prefs = await SharedPreferences.getInstance();
-      await _recordBackupDay(prefs, now);
+      await _recordBackupDay(prefs, now, scope);
 
       return true;
     } catch (e, s) {
@@ -406,10 +411,18 @@ class LocalBackupService {
     return jsonEncode(data.toJson());
   }
 
-  String _buildFileName(DateTime now, {required bool isManual}) {
+  // [scope] is the one captured when the backup started, not whatever is
+  // active by the time the file is written: reading the codes is asynchronous,
+  // so a profile switch in between would otherwise file this vault's codes
+  // under the incoming profile's segment.
+  String _buildFileName(
+    DateTime now, {
+    required bool isManual,
+    required String scope,
+  }) {
     final formatter = DateFormat('yyyy-MM-dd_HH-mm-ss');
     final formattedDate = formatter.format(now);
-    final segment = backupFileScopeSegment(Configuration.instance.scope);
+    final segment = backupFileScopeSegment(scope);
     final owner = segment.isEmpty ? '' : '$segment-';
     return isManual
         ? 'ente-auth-manual-backup-$owner$formattedDate.json'
@@ -418,18 +431,24 @@ class LocalBackupService {
 
   // Scoped, so that a backup of one vault does not count as the day's backup
   // for the others. The legacy scope resolves to the original unprefixed key.
-  String get _scopedLastBackupDayKey =>
-      Configuration.instance.scopedKey(_lastBackupDayKey);
+  String _lastBackupDayKeyFor(String scope) => '$scope$_lastBackupDayKey';
 
   bool _hasBackedUpToday(SharedPreferences prefs) {
     final todayKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final last = prefs.getString(_scopedLastBackupDayKey);
+    final last = prefs.getString(
+      _lastBackupDayKeyFor(Configuration.instance.scope),
+    );
     return last == todayKey;
   }
 
-  Future<void> _recordBackupDay(SharedPreferences prefs, DateTime now) async {
+  // [scope] is the one the backup was taken from; see _buildFileName.
+  Future<void> _recordBackupDay(
+    SharedPreferences prefs,
+    DateTime now,
+    String scope,
+  ) async {
     final dayKey = DateFormat('yyyy-MM-dd').format(now);
-    await prefs.setString(_scopedLastBackupDayKey, dayKey);
+    await prefs.setString(_lastBackupDayKeyFor(scope), dayKey);
   }
 }
 

@@ -22,14 +22,20 @@ Future<String> databasePathForName(String databaseName) async {
 
 // The per-profile scope plumbing shared by the code databases.
 //
-// Opening, closing and re-scoping all run through one queue. Without that
-// serialisation a read arriving while setScope() is closing the outgoing file
-// reopens it under the scope that is still current, and the resulting handle
-// outlives the switch: the app believes it moved to the new profile while
-// every query keeps hitting the previous profile's codes.
+// Handing out a handle and re-scoping run through one queue, so a read
+// arriving mid-switch cannot open the outgoing file under the scope that is
+// still current.
+//
+// A switch deliberately does NOT close the outgoing handle. The queue only
+// covers handing the handle out: callers hold the Database they were given for
+// the whole of their query, so closing it here throws database_closed under a
+// read that started before the switch (a timer driven backup, say, which the
+// sync suspension does not cover). Handles are kept per scope instead, at most
+// one per profile the session visits, and closed explicitly — by closeScope()
+// before a removed profile's files are deleted, and by close() on teardown.
 mixin ScopedDatabase {
   Future<void> _queue = Future<void>.value();
-  Future<Database>? _dbFuture;
+  final Map<String, Future<Database>> _dbFutures = {};
   String _scope = "";
 
   String get scope => _scope;
@@ -41,22 +47,39 @@ mixin ScopedDatabase {
   Future<Database> openDatabaseNamed(String databaseName);
 
   Future<void> setScope(String scope) => _serialised(() async {
-    if (_scope == scope) return;
-    await _close();
     _scope = scope;
   });
 
-  Future<void> close() => _serialised(_close);
+  Future<void> close() => _serialised(() async {
+    final dbFutures = _dbFutures.values.toList();
+    _dbFutures.clear();
+    for (final dbFuture in dbFutures) {
+      await _closeQuietly(dbFuture);
+    }
+  });
 
-  Future<Database> get database => _serialised(
-    () async => _dbFuture ??= openDatabaseNamed(databaseNameFor(_scope)),
-  );
-
-  Future<void> _close() async {
-    final dbFuture = _dbFuture;
-    _dbFuture = null;
+  // Releases just [scope]'s file, so that it can be deleted. Nothing hands a
+  // released handle out again; an acquisition for [scope] after this simply
+  // reopens it.
+  Future<void> closeScope(String scope) => _serialised(() async {
+    final dbFuture = _dbFutures.remove(scope);
     if (dbFuture != null) {
+      await _closeQuietly(dbFuture);
+    }
+  });
+
+  Future<Database> get database => _serialised(() async {
+    final scope = _scope;
+    return _dbFutures[scope] ??= openDatabaseNamed(databaseNameFor(scope));
+  });
+
+  Future<void> _closeQuietly(Future<Database> dbFuture) async {
+    try {
       await (await dbFuture).close();
+    } catch (_) {
+      // An open that never succeeded, or a handle already gone: either way
+      // there is nothing left to release, and a profile removal must not be
+      // held up by it.
     }
   }
 

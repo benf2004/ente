@@ -200,6 +200,9 @@ Future<void> _init(bool bool, {String? via}) async {
   await Configuration.instance.init([
     AuthenticatorDB.instance,
   ], scope: activeScope);
+  // Needs the secure storage Configuration.init() sets up, so it cannot run
+  // alongside the rest of ProfileService.init().
+  await ProfileService.instance.sweepOrphanedScopes();
   await cleanupPickedImagesOnStartup(logger: _logger);
   await Network.instance.init(Configuration.instance);
   await UserService.instance.init(
