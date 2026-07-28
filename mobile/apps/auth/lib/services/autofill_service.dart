@@ -9,6 +9,7 @@ import 'package:ente_auth/store/code_store.dart';
 import 'package:ente_auth/utils/autofill_domain_util.dart';
 import 'package:ente_events/event_bus.dart';
 import 'package:ente_lock_screen/lock_screen_settings.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 
@@ -24,12 +25,35 @@ import 'package:logging/logging.dart';
 /// unavailable while it is not active, and publishing across profiles would
 /// mean offering one account's codes while the user is signed in as another.
 class AutoFillService {
-  AutoFillService._privateConstructor();
+  AutoFillService._privateConstructor()
+    : _isPlatformSupportedOverride = null,
+      _codesProvider = null,
+      _requiresAuthProvider = null;
+
+  /// A second construction path used only by tests. `CodeStore` and
+  /// `LockScreenSettings` both need a live database/secure-storage/platform
+  /// channel stack to construct, and `Platform.isIOS` cannot be faked from
+  /// Dart at all — so real unit tests replace all three here rather than
+  /// going through the singleton, which exercises this exact class against
+  /// fakes instead of skipping it.
+  @visibleForTesting
+  AutoFillService.forTesting({
+    required bool Function() isPlatformSupported,
+    required Future<List<Code>> Function() codesProvider,
+    required Future<bool> Function() requiresAuthProvider,
+  }) : _isPlatformSupportedOverride = isPlatformSupported,
+       _codesProvider = codesProvider,
+       _requiresAuthProvider = requiresAuthProvider;
+
   static final AutoFillService instance = AutoFillService._privateConstructor();
 
   static const _channel = MethodChannel("io.ente.auth/autofill");
 
   final _logger = Logger("AutoFillService");
+
+  final bool Function()? _isPlatformSupportedOverride;
+  final Future<List<Code>> Function()? _codesProvider;
+  final Future<bool> Function()? _requiresAuthProvider;
 
   StreamSubscription<CodesUpdatedEvent>? _codesUpdatedSubscription;
   bool? _isSupported;
@@ -49,7 +73,8 @@ class AutoFillService {
     await refresh();
   }
 
-  bool get _isPlatformSupported => Platform.isIOS;
+  bool get _isPlatformSupported =>
+      _isPlatformSupportedOverride?.call() ?? Platform.isIOS;
 
   /// True only on iOS 18 and up, where third-party providers may serve
   /// one-time codes. The settings entry is hidden entirely below that rather
@@ -98,7 +123,7 @@ class AutoFillService {
 
     final List<Code> codes;
     try {
-      codes = await CodeStore.instance.getAllCodes();
+      codes = await (_codesProvider?.call() ?? CodeStore.instance.getAllCodes());
     } catch (e, s) {
       // A transient read failure must not wipe what the extension already has;
       // the user would silently lose AutoFill until the next code change.
@@ -113,7 +138,8 @@ class AutoFillService {
       // The extension bypasses the Flutter lock screen by construction, so
       // this flag is what stops AutoFill being a way around it. Re-read on
       // every refresh, since the app lock can be set or cleared at any time.
-      "requiresAuth": await LockScreenSettings.instance.shouldShowLockScreen(),
+      "requiresAuth": await (_requiresAuthProvider?.call() ??
+          LockScreenSettings.instance.shouldShowLockScreen()),
     };
 
     final signature = jsonEncode(payload);

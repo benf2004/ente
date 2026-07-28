@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "All codes" : {
+      "comment" : "Section header listing every code below the ones that matched the requested site",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All codes"
+          }
+        }
+      }
+    },
+    "Authenticate to fill your code" : {
+      "comment" : "AutoFill biometric prompt",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Authenticate to fill your code"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "comment" : "Dismisses the AutoFill sheet without filling a code",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "For %@" : {
+      "comment" : "Section header in the AutoFill code list; %@ is the site iOS asked for a code on",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For %@"
+          }
+        }
+      }
+    },
+    "Invalid" : {
+      "comment" : "Shown in place of a code when TOTP generation failed for an entry",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid"
+          }
+        }
+      }
+    },
+    "No codes available" : {
+      "comment" : "Headline shown when the app has not published any codes to AutoFill yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No codes available"
+          }
+        }
+      }
+    },
+    "No codes match “%@”" : {
+      "comment" : "Shown in the AutoFill code list when a search matches nothing; %@ is the search text the user typed",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No codes match “%@”"
+          }
+        }
+      }
+    },
+    "Open Ente Auth and turn on AutoFill in Settings → General." : {
+      "comment" : "Shown under \"No codes available\", telling the user how to fix it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Ente Auth and turn on AutoFill in Settings → General."
+          }
+        }
+      }
+    },
+    "Search codes" : {
+      "comment" : "Placeholder in the AutoFill code list's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search codes"
+          }
+        }
+      }
+    },
+    "Suggested" : {
+      "comment" : "Section header in the AutoFill code list when iOS did not name a site",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggested"
+          }
+        }
+      }
+    },
+    "Your codes" : {
+      "comment" : "Section header listing every code, shown when none matched the requested site",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your codes"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.1"
+}

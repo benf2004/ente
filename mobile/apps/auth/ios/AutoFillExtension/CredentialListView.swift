@@ -24,22 +24,39 @@ struct CredentialListView: View {
           }
         }
         if !others.isEmpty {
-          Section(matching.isEmpty ? "Your codes" : "All codes") {
+          Section(
+            matching.isEmpty
+              ? Strings.yourCodes
+              : Strings.allCodes
+          ) {
             ForEach(others, id: \.id) { row($0) }
           }
         }
         if matching.isEmpty && others.isEmpty {
-          Text("No codes match “\(searchText)”")
-            .foregroundStyle(.secondary)
+          Text(
+            String(
+              format: NSLocalizedString(
+                "No codes match “%@”",
+                comment:
+                  "Shown in the AutoFill code list when a search matches nothing; %@ is the search text the user typed"
+              ), searchText)
+          )
+          .foregroundStyle(.secondary)
         }
       }
       .listStyle(.insetGrouped)
-      .searchable(text: $searchText, prompt: "Search codes")
+      .searchable(
+        text: $searchText,
+        prompt: Text(
+          NSLocalizedString(
+            "Search codes", comment: "Placeholder in the AutoFill code list's search field"))
+      )
+      // Not localized: the app's name, not a translated phrase.
       .navigationTitle("Ente Auth")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", action: onCancel)
+          Button(Strings.cancel, action: onCancel)
         }
       }
     }
@@ -79,7 +96,7 @@ struct CredentialListView: View {
             .foregroundStyle(.secondary)
             .frame(minWidth: 20, alignment: .trailing)
         } else {
-          Text("Invalid")
+          Text(Strings.invalid)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -105,7 +122,12 @@ struct CredentialListView: View {
   }
 
   private var sectionTitle: String {
-    requestedHosts.first.map { "For \($0)" } ?? "Suggested"
+    guard let host = requestedHosts.first else { return Strings.suggested }
+    return String(
+      format: NSLocalizedString(
+        "For %@",
+        comment: "Section header in the AutoFill code list; %@ is the site iOS asked for a code on"
+      ), host)
   }
 
   private var searched: [VaultEntry] {
@@ -149,17 +171,26 @@ struct CredentialEmptyView: View {
         Image(systemName: "lock.rectangle.stack")
           .font(.largeTitle)
           .foregroundStyle(.secondary)
-        Text("No codes available")
-          .font(.headline)
-        Text("Open Ente Auth and turn on AutoFill in Settings → General.")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
+        Text(
+          NSLocalizedString(
+            "No codes available",
+            comment: "Headline shown when the app has not published any codes to AutoFill yet")
+        )
+        .font(.headline)
+        Text(
+          NSLocalizedString(
+            "Open Ente Auth and turn on AutoFill in Settings → General.",
+            comment:
+              "Shown under \"No codes available\", telling the user how to fix it")
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
       }
       .padding()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", action: onCancel)
+          Button(Strings.cancel, action: onCancel)
         }
       }
     }
